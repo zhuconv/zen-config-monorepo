@@ -1,0 +1,31 @@
+{
+  "id": "zen-tab-autofill",
+  "name": "Tab Autofill",
+  "description": "Press Tab to accept the URL bar's inline completion, and see the site's favicon in the URL bar while you type.",
+  "author": "zhuconv",
+  "version": "0.1.0",
+  "ai": "yes",
+  "scripts": {
+    "tab-autofill.uc.js": {
+      "name": "Tab Autofill",
+      "description": "Tab accepts the inline completion; the URL bar icon shows the favicon of the site Enter would open.",
+      "include": [
+        "chrome://browser/content/browser.xhtml"
+      ]
+    }
+  },
+  "supportsUnload": true,
+  "preferences": "preferences.json",
+  "readme": "https://raw.githubusercontent.com/zhuconv/zen-config-monorepo/main/zen-tab-autofill/README.md",
+  "homepage": "https://github.com/zhuconv/zen-config-monorepo/tree/main/zen-tab-autofill",
+  "tags": [
+    "urlbar",
+    "keyboard",
+    "productivity"
+  ],
+  "fork": [
+    "zen"
+  ],
+  "createdAt": "2026-11-12",
+  "updatedAt": "2026-11-13"
+}

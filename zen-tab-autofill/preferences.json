@@ -1,0 +1,20 @@
+[
+  {
+    "property": "uc.tab-autofill.tab-accepts",
+    "label": "Tab accepts the inline URL completion",
+    "type": "checkbox",
+    "defaultValue": true
+  },
+  {
+    "property": "uc.tab-autofill.favicon",
+    "label": "Show the site's favicon in the URL bar while typing",
+    "type": "checkbox",
+    "defaultValue": true
+  },
+  {
+    "property": "uc.tab-autofill.favicon-after-accept",
+    "label": "Only show the favicon after the completion is accepted",
+    "type": "checkbox",
+    "defaultValue": false
+  }
+]

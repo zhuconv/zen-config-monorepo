@@ -30,7 +30,7 @@ const DEFAULT_CONFIG = ["Library", "Application Support", "zen-agent-sidebar", "
 // The last model and effort lists each agent reported, kept next to
 // config.json so the panel header can show them before an agent has started.
 const OPTIONS_CACHE = "options-cache.json";
-const CLIENT = { name: "zen-agent-sidebar", title: "Zen Agent Sidebar", version: "0.3.0" };
+const CLIENT = { name: "zen-agent-sidebar", title: "Zen Agent Sidebar", version: "0.4.0" };
 
 /** Session settings the panel header offers: the model and the effort. */
 export const MODEL_OPTION = "model";
@@ -38,11 +38,13 @@ export const EFFORT_OPTIONS = ["reasoning_effort", "effort"];
 
 const INSTRUCTIONS = `You are a reading assistant inside the user's web browser (Zen).
 The user is reading a web page or a PDF. With their question, the browser attaches:
-- the page's text, as an embedded resource whose URI is the page URL. It is attached once per page in a conversation, so look back at it for follow-up questions.
+- the page's text as the user sees it, as an embedded resource whose URI is the page URL. It is attached in full the first time the user asks about a page. After that only what is new on the page is attached, marked as a page update, so look back at the earlier text for the rest.
 - the passage they selected, inside <selection> tags, when they selected one.
+- files they chose to attach: images, and the text of PDFs and text files as embedded resources headed by the file name.
 Answer from the attached page first: it is exactly what the user is looking at. Search the web only when the question needs information the page does not contain.
 Be concise and direct, and reply in the language of the user's question. Use Markdown, and write math in LaTeX between $...$ or $$...$$.
 This is not a coding task: do not run shell commands, read local files, or edit anything unless the user explicitly asks you to.`;
+const SYSTEM_PROMPT = { mode: "append", content: [{ type: "text", text: INSTRUCTIONS }] };
 
 function debug(...args) {
   if (Services.prefs.getBoolPref(PREF_DEBUG, false)) {
@@ -101,6 +103,10 @@ class AcpConnection {
 
   get closesSessions() {
     return !!this.initResult?.agentCapabilities?.sessionCapabilities?.close;
+  }
+
+  get forksSessions() {
+    return !!this.initResult?.agentCapabilities?.sessionCapabilities?.fork;
   }
 
   async start() {
@@ -295,8 +301,11 @@ class Conversation {
   draft = null; // { selection, text } the composer keeps while switching tabs
   lastSelection = ""; // the page selection the shortcut last picked up
   current = null; // assistant message receiving text
-  sentPages = new Set(); // page URLs whose text this session already has
-  pageText = null; // { url, promise }: the page's text, read ahead while the user types
+  sentPages = new Map(); // page URL -> { kind, text }: what this session has of each page
+  // The session and the sessions it was forked from: their answers are in its
+  // history.
+  lineage = new Set();
+  pageText = null; // { url, promise }: a PDF's text, read ahead while the user types
   listeners = new Set();
 
   constructor(id, harness) {
@@ -331,6 +340,12 @@ class Conversation {
     this.emit({ type: "update", message });
   }
 
+  /** Drop messages[i] and every message after it. */
+  truncate(i) {
+    const dropped = this.messages.splice(i);
+    this.emit({ type: "truncate", dropped });
+  }
+
   setStatus(status) {
     this.status = status;
     this.emit({ type: "status" });
@@ -354,9 +369,16 @@ function registerActor(base) {
   }
 }
 
-function resourceBlock(page, info) {
+/** The page for the agent. `update` is "new" for only the lines that are new
+ * since the page was attached, or "full" for the whole page again after it
+ * changed a lot. */
+function resourceBlock(page, info, update = null) {
   const header = [`Title: ${page.title}`, `URL: ${page.url}`];
-  if (info.kind === "pdf") {
+  if (update === "new") {
+    header.push("Page update: the lines that are new on the page since it was attached. The rest of the page is as before.");
+  } else if (update === "full") {
+    header.push(`The page changed since it was attached. Its full text again${info.truncated ? " (truncated)" : ""}:`);
+  } else if (info.kind === "pdf") {
     header.push(
       `PDF text, pages 1-${info.pagesRead} of ${info.pages}${info.truncated ? " (truncated)" : ""}`
     );
@@ -370,6 +392,58 @@ function resourceBlock(page, info) {
       mimeType: "text/plain",
       text: `${header.join("\n")}\n\n${info.text}`,
     },
+  };
+}
+
+/**
+ * The lines of `now` that `before` does not have, in order, with "…" where
+ * lines it has were skipped. Each line of `before` counts once, so a line that
+ * appears one more time is new.
+ */
+function addedLines(before, now) {
+  const left = new Map();
+  for (const line of before.split("\n")) {
+    const key = line.trim();
+    if (key) {
+      left.set(key, (left.get(key) ?? 0) + 1);
+    }
+  }
+  const out = [];
+  let skipped = false;
+  for (const line of now.split("\n")) {
+    const key = line.trim();
+    if (!key) {
+      continue;
+    }
+    const count = left.get(key) ?? 0;
+    if (count > 0) {
+      left.set(key, count - 1);
+      skipped = true;
+      continue;
+    }
+    if (skipped && out.length) {
+      out.push("…");
+    }
+    skipped = false;
+    out.push(line);
+  }
+  return out.join("\n");
+}
+
+/** A file the user attached in the panel, as read by attachments.mjs. */
+function attachmentBlock(file) {
+  if (file.kind === "image") {
+    return { type: "image", mimeType: file.mimeType, data: file.data };
+  }
+  const header = [`File: ${file.name}`];
+  if (file.kind === "pdf") {
+    header.push(`PDF text, pages 1-${file.pagesRead} of ${file.pages}${file.truncated ? " (truncated)" : ""}`);
+  } else if (file.truncated) {
+    header.push("Text (truncated)");
+  }
+  return {
+    type: "resource",
+    resource: { uri: file.uri, mimeType: "text/plain", text: `${header.join("\n")}\n\n${file.text}` },
   };
 }
 
@@ -619,12 +693,18 @@ export const AgentService = {
     return conn;
   },
 
-  /** Resume the conversation's closed session, or start a new one. */
-  async openSession(conv, conn) {
+  /** What session/new, session/resume and session/fork take for this agent. */
+  sessionParams(conn) {
     const params = { cwd: conn.config.cwd || PathUtils.tempDir, mcpServers: [] };
     if (conn.config.sessionMeta) {
       params._meta = conn.config.sessionMeta;
     }
+    return params;
+  },
+
+  /** Resume the conversation's closed session, or start a new one. */
+  async openSession(conv, conn) {
+    const params = this.sessionParams(conn);
     let sessionId = null;
     let result = null;
     if (conv.parkedId) {
@@ -646,7 +726,7 @@ export const AgentService = {
     }
     if (!result) {
       if (conn.appendsSystemPrompt) {
-        params.systemPrompt = { mode: "append", content: [{ type: "text", text: INSTRUCTIONS }] };
+        params.systemPrompt = SYSTEM_PROMPT;
       }
       try {
         result = await conn.request("session/new", params, 60000);
@@ -662,15 +742,115 @@ export const AgentService = {
       conv.instructed = !!params.systemPrompt;
       conv.instructedBy = params.systemPrompt ? "system" : null;
       conv.sentPages.clear();
+      conv.lineage.clear();
     }
+    await this.adopt(conv, conn, sessionId, result);
+  },
+
+  /** Make a session the conversation's own. `result` is what the agent
+   * answered to the request that opened it. */
+  async adopt(conv, conn, sessionId, result) {
     conv.sessionId = sessionId;
     conv.conn = conn;
     conv.configOptions = result.configOptions ?? null;
+    conv.lineage.add(sessionId);
     this.remember(conv);
     this.bySession.set(sessionId, conv);
     await this.applyPreferredOptions(conv);
     conv.emit({ type: "session" });
     this.limitOpenSessions(conv);
+  },
+
+  /**
+   * Where the session goes back to when the user edits conv.messages[i]: the
+   * last answer before it that the session holds, from a turn that ended, with
+   * what the session had of the pages and the instructions after that turn.
+   * Null when the session holds no answer before it, so a new session loses
+   * nothing; { messageId: null } when it does but none can be pointed at.
+   */
+  forkPoint(conv, i) {
+    let held = false;
+    for (let j = i - 1; j >= 0; j--) {
+      const answer = conv.messages[j];
+      if (answer.role !== "assistant" || !conv.lineage.has(answer.session)) {
+        continue;
+      }
+      held = true;
+      const turn = conv.messages.slice(0, j).findLast(m => m.role === "user");
+      if (answer.messageId && turn?.after) {
+        return { messageId: answer.messageId, ...turn.after };
+      }
+    }
+    return held ? { messageId: null } : null;
+  },
+
+  /**
+   * The user edited a question: take the session back to `point` (see
+   * forkPoint), so that it holds the conversation up to the end of that
+   * answer's turn and nothing after it. session/fork copies the session up to
+   * an answer (both adapters take the fork point in `_meta`, from JetBrains
+   * AIR); the session the question was in is closed. With nothing to keep, or
+   * when the agent cannot fork, the question goes to a new session.
+   */
+  async rewind(conv, point) {
+    await conv.opening?.catch(() => {}); // a session starting while the user typed
+    const source = conv.sessionId ?? conv.parkedId;
+    let conn = null;
+    let result = null;
+    try {
+      if (point?.messageId && source) {
+        conn = await this.connection(conv.harness);
+        if (conn.forksSessions) {
+          const params = {
+            ...this.sessionParams(conn),
+            sessionId: source,
+            _meta: merge(conn.config.sessionMeta ?? {}, {
+              jetbrains: { air: { fork: { version: 1, messageId: point.messageId } } },
+            }),
+          };
+          if (conn.appendsSystemPrompt) {
+            params.systemPrompt = SYSTEM_PROMPT; // the same as the session's own
+          }
+          try {
+            result = await conn.request("session/fork", params, 60000);
+            result.systemPrompt = !!params.systemPrompt;
+          } catch (e) {
+            debug("could not fork the session:", e.message);
+          }
+        }
+      }
+    } finally {
+      // The edited question must not reach the agent in its old session.
+      this.drop(conv);
+    }
+    if (result?.sessionId) {
+      conv.sentPages = new Map(point.sentPages);
+      conv.instructed = result.systemPrompt || (point.instructed && point.instructedBy === "prompt");
+      conv.instructedBy = result.systemPrompt ? "system" : conv.instructed ? "prompt" : null;
+      await this.adopt(conv, conn, result.sessionId, result);
+      return;
+    }
+    // ensureSession opens a new session, which starts with nothing from before.
+    if (point) {
+      conv.push({
+        role: "note",
+        text: "The agent could not go back to that point, so it starts over without the earlier messages.",
+      });
+    }
+  },
+
+  /** Let go of the conversation's session, closing it if it is open. */
+  drop(conv) {
+    if (conv.sessionId) {
+      this.bySession.delete(conv.sessionId);
+      if (conv.conn && !conv.conn.exited) {
+        conv.conn.request("session/close", { sessionId: conv.sessionId }, 10000).catch(() => {});
+      }
+    }
+    conv.sessionId = null;
+    conv.conn = null;
+    conv.parkedId = null;
+    conv.configOptions = null;
   },
 
   /** Reopen a closed session with its history; null when the agent cannot.
@@ -765,7 +945,7 @@ export const AgentService = {
     this.ensureSession(conv).catch(e => debug("prewarm failed:", e.message));
   },
 
-  /** The page's text, read once per page and shared by the read-ahead and send(). */
+  /** The page's text, shared by the read-ahead and send(). */
   readPage(conv, page) {
     if (conv.pageText?.url !== page.url) {
       const promise = Promise.resolve()
@@ -779,11 +959,39 @@ export const AgentService = {
     return conv.pageText.promise;
   },
 
-  /** The shortcut opened the panel: read the page while the user types. */
+  /** The shortcut opened the panel: read a PDF while the user types (that
+   * can take a second). A web page is read when the question is sent, so the
+   * agent gets it as it is then. */
   prefetchPage(conv, page) {
-    if (page?.url && page.getText && !conv.sentPages.has(page.url)) {
+    if (page?.url && page.getText && page.kind === "pdf" && !conv.sentPages.has(page.url)) {
       this.readPage(conv, page);
     }
+  },
+
+  /**
+   * What the agent needs to hear about the page for this question: all of it
+   * the first time; afterwards the lines that are new since it last heard,
+   * or the whole page again when most of it is new; nothing when nothing
+   * was added. Notes it on the user's message.
+   */
+  pageBlock(conv, page, info, user) {
+    const before = conv.sentPages.get(page.url);
+    let block = null;
+    if (!before) {
+      block = resourceBlock(page, info);
+    } else if (before.text !== info.text) {
+      const added = addedLines(before.text, info.text);
+      if (added.length > info.text.length / 2) {
+        block = resourceBlock(page, info, "full");
+      } else if (added) {
+        block = resourceBlock(page, { ...info, text: added }, "new");
+      }
+    }
+    if (block) {
+      user.attached = { kind: info.kind, truncated: !!info.truncated, update: !!before };
+      conv.touch(user);
+    }
+    return block;
   },
 
   remember(conv) {
@@ -850,25 +1058,40 @@ export const AgentService = {
     conv.emit({ type: "options" });
   },
 
-  /** The panel switched agents: a session cannot move, so start over. */
+  /** The panel switched agents: a session cannot move, so start over. What
+   * the composer holds (selection, files) stays for the new agent. */
   setHarness(conv, harness) {
     Services.prefs.setStringPref(PREF_HARNESS, harness);
     if (conv.harness === harness) {
       return;
     }
-    this.reset(conv);
+    this.reset(conv, { keepDraft: true });
     conv.harness = harness;
     conv.emit({ type: "session" });
     this.prewarm(conv);
   },
 
   /**
-   * Ask a question. `page` is { url, title, getText } for the tab's page;
-   * its text goes along the first time this conversation sees that URL.
+   * Ask a question. `page` is { url, title, kind, getText } for the tab's
+   * page; its text goes along the first time this conversation asks about
+   * it, and what is new on it later (pageBlock). `attachments` are files from
+   * the panel (attachments.mjs); they stay with the question, so it can be
+   * edited and sent again. `replace` is a question the user edited: it and
+   * everything after it go, from the panel and from the agent's session
+   * (rewind).
    */
-  async send(conv, { question, selection = "", page = null }) {
+  async send(conv, { question, selection = "", page = null, attachments = [], replace = null }) {
     if (conv.busy) {
       return;
+    }
+    let point = null;
+    if (replace) {
+      const i = conv.messages.indexOf(replace);
+      if (i < 0) {
+        return;
+      }
+      point = this.forkPoint(conv, i);
+      conv.truncate(i);
     }
     conv.busy = true;
     conv.current = null;
@@ -876,22 +1099,38 @@ export const AgentService = {
       role: "user",
       text: question,
       selection,
+      files: attachments.map(({ name, kind, info, thumb }) => ({ name, kind, info, thumb })),
+      attachments,
       page: page ? { title: page.title, url: page.url } : null,
       attached: null,
+      after: null, // what the session holds once this turn is in (forkPoint)
     });
     conv.emit({ type: "busy" });
-    let pageUrl = null;
+    let seen = null; // the page as the session has it once this question is in
     let conn = null;
     try {
       const name = this.config?.agents?.[conv.harness]?.name || conv.harness;
+      if (replace) {
+        conv.setStatus("Going back…");
+        await this.rewind(conv, point);
+      }
       conv.setStatus(conv.sessionId ? "" : `Starting ${name}…`);
-      // Read the page while the session starts (the shortcut usually started
-      // both already).
-      const wantsText = () => page?.url && page.getText && !conv.sentPages.has(page.url);
+      // Read the page while the session starts. A web page is read for every
+      // question, so the agent hears what changed on it (replies that loaded,
+      // sections the user opened). A PDF does not change: it is read until
+      // the session has it, usually ahead, while the user types.
+      const wantsText = () =>
+        page?.url && page.getText && !(page.kind === "pdf" && conv.sentPages.has(page.url));
       let text = wantsText() ? this.readPage(conv, page) : null;
       conn = await this.ensureSession(conv);
       if (!text && wantsText()) {
         text = this.readPage(conv, page); // the session started over
+      }
+      if (
+        attachments.some(file => file.kind === "image") &&
+        !conn.initResult?.agentCapabilities?.promptCapabilities?.image
+      ) {
+        throw new Error(`${name} does not take images.`);
       }
       const prompt = [];
       if (!conv.instructed) {
@@ -903,12 +1142,14 @@ export const AgentService = {
         const info = await text;
         conv.pageText = null;
         if (info?.text) {
-          prompt.push(resourceBlock(page, info));
-          user.attached = { kind: info.kind, truncated: !!info.truncated };
-          conv.touch(user);
-          pageUrl = page.url;
+          const block = this.pageBlock(conv, page, info, user);
+          if (block) {
+            prompt.push(block);
+          }
+          seen = { url: page.url, kind: info.kind, text: info.text };
         }
       }
+      prompt.push(...attachments.map(attachmentBlock));
       prompt.push({ type: "text", text: promptText(question, selection) });
       conv.setStatus("Thinking…");
       const result = await conn.request("session/prompt", {
@@ -916,9 +1157,10 @@ export const AgentService = {
         prompt,
       });
       conv.instructed = true;
-      if (pageUrl) {
-        conv.sentPages.add(pageUrl);
+      if (seen) {
+        conv.sentPages.set(seen.url, { kind: seen.kind, text: seen.text });
       }
+      user.after = { sentPages: new Map(conv.sentPages), instructed: true, instructedBy: conv.instructedBy };
       const stopped = result?.stopReason === "cancelled";
       if (conv.current) {
         conv.current.state = stopped ? "stopped" : "done";
@@ -965,24 +1207,19 @@ export const AgentService = {
     }
   },
 
-  /** New chat: drop the session and the messages. */
-  reset(conv) {
+  /** New chat: drop the session and the messages, and the composer's draft
+   * unless `keepDraft`. */
+  reset(conv, { keepDraft = false } = {}) {
     this.cancel(conv);
-    if (conv.sessionId) {
-      this.bySession.delete(conv.sessionId);
-      if (conv.conn && !conv.conn.exited) {
-        conv.conn.request("session/close", { sessionId: conv.sessionId }, 10000).catch(() => {});
-      }
-    }
-    conv.sessionId = null;
-    conv.conn = null;
-    conv.parkedId = null;
-    conv.configOptions = null;
+    this.drop(conv);
+    conv.lineage.clear();
     conv.instructed = false;
     conv.instructedBy = null;
     conv.messages = [];
     conv.current = null;
-    conv.draft = null;
+    if (!keepDraft) {
+      conv.draft = null;
+    }
     conv.pageText = null;
     conv.sentPages.clear();
     conv.emit({ type: "reset" });
@@ -1033,12 +1270,20 @@ export const AgentService = {
         if (!text) {
           return;
         }
-        // Text after a tool call starts a new bubble, so the order reads right.
+        // Text after a tool call starts a new bubble, so the order reads right,
+        // and so does another message of the agent: each bubble keeps the
+        // agent's id for its message, which editing a question forks at.
+        const messageId = update.messageId ?? null;
         let reply = conv.current;
-        if (!reply || conv.messages.at(-1) !== reply) {
-          reply = conv.push({ role: "assistant", text: "", state: "streaming" });
+        if (!reply || conv.messages.at(-1) !== reply || (messageId && reply.messageId && messageId !== reply.messageId)) {
+          if (reply) {
+            reply.state = "done"; // the text before the tool call is complete
+            conv.touch(reply);
+          }
+          reply = conv.push({ role: "assistant", text: "", state: "streaming", session: sessionId, messageId });
           conv.current = reply;
         }
+        reply.messageId ??= messageId;
         reply.text += text;
         if (conv.status) {
           conv.setStatus("");

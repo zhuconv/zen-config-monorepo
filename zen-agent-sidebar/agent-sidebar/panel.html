@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src chrome: resource:; img-src chrome: data:; script-src chrome:; style-src chrome:; object-src 'none'"
+      content="default-src chrome: resource:; img-src chrome: data:; script-src chrome: resource:; worker-src resource: blob:; style-src chrome:; object-src 'none'"
     />
     <meta name="color-scheme" content="light dark" />
     <title>Codex</title>
@@ -24,17 +24,20 @@
     <div id="empty">
       <p>Select text on the page, press <kbd>⌘⇧A</kbd>, and ask.</p>
       <p>Or just type a question about this page.</p>
+      <p>Drop or paste images, PDFs and text files to attach them.</p>
     </div>
     <footer id="composer">
       <div id="chip" hidden>
         <div id="chip-text"></div>
         <button id="chip-remove" class="icon" title="Remove the selection">✕</button>
       </div>
-      <textarea id="input" rows="1" placeholder="Ask about this page…"></textarea>
-      <div id="bar">
-        <span id="status"></span>
-        <button id="stop" hidden>Stop</button>
-        <button id="send">Send</button>
+      <div id="attachments" hidden></div>
+      <div id="box">
+        <button id="attach" class="round" title="Attach images, PDFs or text files (or drop or paste them)" aria-label="Attach files"></button>
+        <input id="file-input" type="file" multiple hidden />
+        <textarea id="input" rows="1" placeholder="Ask about this page…"></textarea>
+        <button id="stop" class="round" title="Stop" aria-label="Stop" hidden></button>
+        <button id="send" class="round" title="Send (Enter)" aria-label="Send"></button>
       </div>
     </footer>
   </body>

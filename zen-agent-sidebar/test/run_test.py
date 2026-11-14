@@ -27,6 +27,7 @@ import os
 import re
 import shutil
 import socket
+import struct
 import subprocess
 import sys
 import tempfile
@@ -138,7 +139,7 @@ function panelState() {
     chip: q("#chip-text").textContent,
     inputFocused: doc.activeElement === q("#input") && doc.hasFocus(),
     messages: [...doc.querySelectorAll("#messages .msg")].map(e => ({ role: e.className.replace("msg ", ""), text: e.textContent, state: e.dataset.state || e.dataset.status || "" })),
-    status: q("#status").textContent,
+    status: q("#input").placeholder,
     harness: q("#harness").value,
     harnesses: [...q("#harness").options].map(o => o.textContent),
     model: q("#model").hidden ? null : q("#model").value,
@@ -154,15 +155,100 @@ async function choose(id, value) {
   await sleep(300);
   return panelState();
 }
-async function ask(question) {
+async function ask(question, timeout = 20000) {
   const doc = panelDoc();
   const input = doc.getElementById("input");
   input.value = question;
   input.dispatchEvent(new doc.defaultView.Event("input"));
   input.dispatchEvent(new doc.defaultView.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-  await waitFor(() => !conv().busy, "the answer to " + JSON.stringify(question), 20000);
+  await waitFor(() => !conv().busy, "the answer to " + JSON.stringify(question), timeout);
   await sleep(150);
   return panelState();
+}
+/** Edit the question whose text is `text` the way the user would: its edit
+ * button, the new text, then Enter (sent) or Escape (cancelled). */
+async function editQuestion(text, edited, key = "Enter", timeout = 20000) {
+  const doc = panelDoc();
+  const win = doc.defaultView;
+  const el = [...doc.querySelectorAll("#messages .msg.user")].find(e => e.querySelector(":scope > .text")?.textContent === text);
+  if (!el) throw new Error("no question " + JSON.stringify(text));
+  el.querySelector(".actions .edit").click();
+  const box = await waitFor(() => el.querySelector(".editor textarea"), "the editor", 3000);
+  const shown = { value: box.value, focused: doc.activeElement === box, editing: el.classList.contains("editing") };
+  box.value = edited;
+  box.dispatchEvent(new win.Event("input"));
+  box.dispatchEvent(new win.KeyboardEvent("keydown", { key, bubbles: true }));
+  if (key === "Enter") {
+    await waitFor(() => conv().messages.some(m => m.role === "user" && m.text === edited), "the edited question", 5000);
+    await waitFor(() => !conv().busy, "the answer to the edited question", timeout);
+  }
+  await sleep(150);
+  return { shown, state: panelState() };
+}
+// Files, made in the panel's own window.
+function panelFile(parts, name, type) {
+  return new (panelDoc().defaultView.File)(parts, name, { type });
+}
+async function wordImage(word, width, height) {
+  const canvas = new OffscreenCanvas(width, height);
+  const c = canvas.getContext("2d");
+  c.fillStyle = "#fff";
+  c.fillRect(0, 0, width, height);
+  c.fillStyle = "#000";
+  c.font = `bold ${Math.round(height / 4)}px sans-serif`;
+  c.fillText(word, width / 10, height / 2);
+  return panelFile([await canvas.convertToBlob({ type: "image/png" })], word.toLowerCase() + ".png", "image/png");
+}
+/** Attach files the way the user would: the 📎 file picker, a real paste (an
+ * image as image data, like a screenshot; any other file as a file copied in
+ * Finder), or a drop. Headless Zen has a clipboard of its own. */
+async function attachVia(how, files) {
+  const doc = panelDoc();
+  const win = doc.defaultView;
+  if (how === "picker") {
+    const input = doc.getElementById("file-input");
+    input.mozSetFileArray(files);
+    input.dispatchEvent(new win.Event("change", { bubbles: true }));
+  } else if (how === "paste") {
+    for (const file of files) {
+      const trans = Cc["@mozilla.org/widget/transferable;1"].createInstance(Ci.nsITransferable);
+      trans.init(null);
+      if (file.type.startsWith("image/")) {
+        const tools = Cc["@mozilla.org/image/tools;1"].getService(Ci.imgITools);
+        trans.addDataFlavor(file.type);
+        trans.setTransferData(file.type, tools.decodeImageFromArrayBuffer(await file.arrayBuffer(), file.type));
+      } else {
+        const path = PathUtils.join(PathUtils.profileDir, "pasted-files", file.name);
+        await IOUtils.write(path, new Uint8Array(await file.arrayBuffer()));
+        const copied = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsIFile);
+        copied.initWithPath(path);
+        trans.addDataFlavor("application/x-moz-file");
+        trans.setTransferData("application/x-moz-file", copied);
+      }
+      Services.clipboard.setData(trans, null, Ci.nsIClipboard.kGlobalClipboard);
+      doc.getElementById("input").focus();
+      SidebarController.browser.docShell.doCommand("cmd_paste");
+    }
+  } else {
+    const data = new win.DataTransfer();
+    for (const file of files) data.items.add(file);
+    const target = doc.getElementById("messages");
+    for (const type of ["dragenter", "dragover", "drop"]) {
+      target.dispatchEvent(new win.DragEvent(type, { dataTransfer: data, bubbles: true, cancelable: true }));
+    }
+  }
+}
+function attachmentChips() {
+  return [...panelDoc().querySelectorAll("#attachments .attachment")].map(e => ({
+    name: e.querySelector(".name").textContent,
+    info: e.querySelector(".info").textContent,
+    state: e.className.replace("attachment ", ""),
+    thumb: !!e.querySelector("img"),
+  }));
+}
+async function filesRead(count) {
+  await waitFor(() => attachmentChips().length === count && attachmentChips().every(c => c.state !== "reading"), count + " files to be read", 15000);
+  return attachmentChips();
 }
 """
 
@@ -330,9 +416,9 @@ return { boxX: Math.round(box.x), boxW: Math.round(box.width), contentX: Math.ro
          placed: Services.prefs.getBoolPref('uc.agent-sidebar.placed-right', false),
          sidebarHeader: getComputedStyle(document.getElementById('sidebar-header')).display };
 """)
-        read_ahead = m.chrome("try { await waitFor(() => conv().pageText, 'the read-ahead', 3000); return conv().pageText.url; } catch (e) { return null; }")
+        read_ahead = m.chrome("await sleep(300); return conv().pageText?.url ?? null;")
         checks += [
-            check("the page is read while the user types", read_ahead == f"{web}/article.html", read_ahead),
+            check("a web page is not read ahead, but when the question is sent", read_ahead is None, read_ahead),
             check("selection shows as a chip", "Offline, for a given model" in state["chip"] and not state["chipHidden"], state),
             check("chip holds the whole selection", selected and state["chip"].strip() == selected, {"selected": selected, "chip": state["chip"]}),
             check("the question box has focus", state["inputFocused"], state),
@@ -354,7 +440,7 @@ return { boxX: Math.round(box.x), boxW: Math.round(box.width), contentX: Math.ro
         return [
             check("page text is attached as a resource", "MARKER-ARTICLE-BODY" in resource.get("text", ""), resource.get("text", "")[:300]),
             check("resource URI is the page URL", resource.get("uri") == f"{web}/article.html", resource.get("uri")),
-            check("Readability dropped the site menu", "Home · Papers" not in resource.get("text", ""), resource.get("text", "")[:200]),
+            check("the site menu is left out", "Home · Papers" not in resource.get("text", ""), resource.get("text", "")[:200]),
             check("selection is quoted in the prompt", "<selection>" in text and "Offline, for a given model" in text, text[:300]),
             check("question follows the selection", text.rstrip().endswith("这是什么意思"), text[-80:]),
             check("session gets the reading-assistant system prompt", "reading assistant" in system, system[:200]),
@@ -389,12 +475,14 @@ return { boxX: Math.round(box.x), boxW: Math.round(box.width), contentX: Math.ro
         press_shortcut(m)
         m.chrome("await waitFor(() => panelOpen() && !panelDoc().getElementById('chip').hidden, 'chip', 6000); return true;")
         chip = m.chrome("return panelState().chip;")
+        read_ahead = m.chrome("try { await waitFor(() => conv().pageText, 'the read-ahead', 3000); return conv().pageText.url; } catch (e) { return null; }")
         state = m.chrome("return await ask('what is this?');")
         prompt = agent.last_prompt()
         resource = next((b["resource"] for b in prompt["prompt"] if b.get("type") == "resource"), {})
         text = prompt["prompt"][-1]["text"]
         return [
             check("PDF text layer selection reaches the chip", selected and "MARKER-PDF-PAGE-ONE" in chip, {"selected": selected, "chip": chip}),
+            check("a PDF is read while the user types", read_ahead == f"{web}/paper.pdf", read_ahead),
             check("PDF text is attached, page by page", "[page 1]" in resource.get("text", "") and "MARKER-PDF-PAGE-TWO" in resource.get("text", ""), resource.get("text", "")[:400]),
             check("PDF resource says how many pages", "pages 1-2 of 2" in resource.get("text", ""), resource.get("text", "")[:200]),
             check("PDF selection is quoted", "MARKER-PDF-PAGE-ONE" in text, text[:200]),
@@ -416,22 +504,46 @@ return { boxX: Math.round(box.x), boxW: Math.round(box.width), contentX: Math.ro
     def stop_cancels_the_turn():
         state = m.chrome(r"""
 const doc = panelDoc();
+const win = doc.defaultView;
 const input = doc.getElementById('input');
+const rect = id => { const b = doc.getElementById(id).getBoundingClientRect(); return { x: Math.round(b.x), mid: Math.round(b.y + b.height / 2), w: Math.round(b.width) }; };
+const idle = { placeholder: input.placeholder, sendDisabled: doc.getElementById('send').disabled };
 input.value = 'SLOW please';
-input.dispatchEvent(new doc.defaultView.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+input.dispatchEvent(new win.Event('input'));
+const layout = {
+  attach: rect('attach'), input: rect('input'), send: rect('send'),
+  attachText: doc.getElementById('attach').textContent,
+  plus: win.getComputedStyle(doc.getElementById('attach'), '::before').backgroundImage,
+  sendDisabled: doc.getElementById('send').disabled,
+};
+input.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
 await waitFor(() => (conv().current?.text || '').includes('word2'), 'streaming', 8000);
-const stopVisible = !doc.getElementById('stop').hidden;
+const busy = {
+  placeholder: input.placeholder, stop: rect('stop'),
+  stopVisible: !doc.getElementById('stop').hidden, sendHidden: doc.getElementById('send').hidden,
+  editShown: [...doc.querySelectorAll('.msg.user > .actions')].filter(e => win.getComputedStyle(e).display !== 'none').length,
+};
 doc.getElementById('stop').click();
 await waitFor(() => !conv().busy, 'stopped', 8000);
 await sleep(150);
-return { stopVisible, state: panelState() };
+const after = { placeholder: input.placeholder, edits: doc.querySelectorAll('.msg.user > .actions .edit').length };
+return { idle, layout, busy, after, state: panelState() };
 """)
         last = state["state"]["messages"][-1]
+        layout, busy = state["layout"], state["busy"]
+        one_row = (layout["attach"]["x"] < layout["input"]["x"] < layout["send"]["x"]
+                   and max(abs(layout[k]["mid"] - layout["input"]["mid"]) for k in ("attach", "send")) <= 2)
         return [
-            check("Stop shows while answering", state["stopVisible"]),
+            check("the question box is one row: + first, then the text, then Send", one_row, layout),
+            check("+ is an icon, not a paperclip", layout["attachText"] == "" and "plus.svg" in layout["plus"], layout),
+            check("Send is dimmed with nothing to send, and not once there is text", state["idle"]["sendDisabled"] and not layout["sendDisabled"], {"idle": state["idle"], "layout": layout}),
+            check("while it answers, the box says Thinking… and Stop takes Send's place",
+                  busy["placeholder"] == "Thinking…" and busy["stopVisible"] and busy["sendHidden"] and busy["stop"]["x"] == layout["send"]["x"], busy),
+            check("questions can't be edited while it answers", busy["editShown"] == 0 and state["after"]["edits"] >= 1, {"busy": busy["editShown"], "after": state["after"]}),
             check("Stop sends session/cancel", len(agent.messages("session/cancel")) == 1, agent.messages("session/cancel")),
             check("answer is marked stopped", last["role"] == "assistant" and last["state"] == "stopped" and "word59" not in last["text"], last),
-            check("Send comes back after stopping", m.chrome("return !panelDoc().getElementById('send').hidden;")),
+            check("Send and the usual prompt come back after stopping",
+                  m.chrome("return !panelDoc().getElementById('send').hidden;") and state["after"]["placeholder"] == "Ask about this page…", state["after"]),
         ]
 
     def new_chat_starts_over():
@@ -502,10 +614,12 @@ return {
     def tool_calls_show():
         state = m.chrome("return await ask('TOOL please');")
         tool = next((x for x in state["messages"] if x["role"] == "tool"), None)
+        before = next((x for x in state["messages"] if x["text"].startswith("before the tool")), None)
         return [
             check("tool call shows with its title", tool and "Searching the web" in tool["text"], state["messages"][-3:]),
             check("tool call shows as completed", tool and tool["state"] == "completed", tool),
             check("text after the tool is a new bubble", state["messages"][-1]["role"] == "assistant" and state["messages"][-1]["text"].startswith("after the tool"), state["messages"][-2:]),
+            check("text before the tool is finished, not left streaming", before and before["state"] == "done", state["messages"][-4:]),
         ]
 
     def crash_recovers():
@@ -709,6 +823,480 @@ return true;
             check("the agent choice is remembered", m.chrome("return Services.prefs.getStringPref('uc.agent-sidebar.harness', '');") == "claude"),
         ]
 
+    def attachments_reach_the_agent():
+        tabs["files"] = open_tab(m, f"{web}/article.html")
+        r = m.chrome(r"""
+const [web] = arguments;
+if (!panelOpen()) document.getElementById('cmd_agentSidebarToggle').doCommand();
+await waitFor(() => panelOpen() && glue().panel, 'panel', 5000);
+glue().AgentService.setHarness(conv(), 'codex');
+await sleep(200);
+const pdf = await (await fetch(web + '/paper.pdf')).arrayBuffer();
+const blank = await (await fetch(web + '/blank.pdf')).arrayBuffer();
+await attachVia('picker', [panelFile(['# Notes\nMARKER-TEXT-FILE one\nline two\n'], 'notes.md', 'text/markdown'),
+                     panelFile([pdf], 'paper.pdf', 'application/pdf')]);
+await attachVia('paste', [await wordImage('PELICAN', 3200, 2000)]);
+await attachVia('drop', [panelFile([new Uint8Array([0x50, 0x4b, 3, 4, 0xff, 0xfe, 0, 0x80])], 'report.docx', ''),
+                   panelFile([blank], 'scan.pdf', 'application/pdf')]);
+const chips = await filesRead(5);
+for (const button of panelDoc().querySelectorAll('#attachments .attachment.error .remove')) button.click();
+await sleep(100);
+return { chips, kept: attachmentChips() };
+""", web)
+        chips = {c["name"]: c for c in r["chips"]}
+        notes, paper, image = chips.get("notes.md", {}), chips.get("paper.pdf", {}), chips.get("pasted.png", {})
+        docx, scan = chips.get("report.docx", {}), chips.get("scan.pdf", {})
+        checks = [
+            check("the + button's picker, a paste and a drop all attach", len(r["chips"]) == 5, r["chips"]),
+            check("a text file shows its length", notes.get("state") == "ready" and notes.get("info", "").endswith("chars"), notes),
+            check("a PDF shows its pages", paper.get("state") == "ready" and paper.get("info") == "2 pages", paper),
+            check("a big image is scaled to 1568 px, with a thumbnail", image.get("info") == "1568×980" and image.get("thumb"), image),
+            check("an Office file is refused with a reason", docx.get("state") == "error" and "can't be read" in docx.get("info", ""), docx),
+            check("a PDF without text is refused with a reason", scan.get("state") == "error" and "no text" in scan.get("info", ""), scan),
+            check("✕ removes a file", [c["name"] for c in r["kept"]] == ["notes.md", "paper.pdf", "pasted.png"], r["kept"]),
+        ]
+        state = m.chrome("return await ask('what are these files?');")
+        after = m.chrome(r"""
+const sent = conv().messages.find(x => x.files?.length);
+return { chips: attachmentChips(), hidden: panelDoc().getElementById('attachments').hidden, kept: sent.files,
+         held: sent.attachments.map(a => [a.name, !!(a.data || a.text)]) };
+""")
+        blocks = (agent.last_prompt() or {"prompt": []})["prompt"]
+        types = [b.get("type") for b in blocks]
+        resources = [b["resource"] for b in blocks if b.get("type") == "resource"]
+        notes_block = next((x for x in resources if x["text"].startswith("File: notes.md")), {})
+        pdf_block = next((x for x in resources if x["text"].startswith("File: paper.pdf")), {})
+        image_block = next((b for b in blocks if b.get("type") == "image"), {})
+        png = base64.b64decode(image_block.get("data", ""))
+        size = list(struct.unpack(">II", png[16:24])) if png[:8] == b"\x89PNG\r\n\x1a\n" else None
+        user = next((x for x in reversed(state["messages"]) if x["role"] == "user"), {})
+        last = state["messages"][-1]
+        return checks + [
+            check("the files go between the page and the question", types == ["resource", "resource", "resource", "image", "text"], types),
+            check("a text file arrives as its text, named", "MARKER-TEXT-FILE" in notes_block.get("text", "") and notes_block.get("uri") == "attachment:notes.md", notes_block),
+            check("a PDF arrives as its text, page by page",
+                  "PDF text, pages 1-2 of 2" in pdf_block.get("text", "") and "[page 2]" in pdf_block.get("text", "") and "MARKER-PDF-PAGE-TWO" in pdf_block.get("text", ""),
+                  pdf_block.get("text", "")[:300]),
+            check("an image arrives as a PNG of at most 1568 px", image_block.get("mimeType") == "image/png" and size == [1568, 980], {"mime": image_block.get("mimeType"), "size": size}),
+            check("the agent answers", "Echo: what are these files? | resources=3" in last["text"] and "images=1" in last["text"], last),
+            check("the message lists the files", all(n in user.get("text", "") for n in ["notes.md", "paper.pdf", "pasted.png"]), user),
+            check("the composer is empty after sending", after["chips"] == [] and after["hidden"], after["chips"]),
+            check("the message shows names and thumbnails, and keeps the files for an edit",
+                  all(set(f) <= {"name", "kind", "info", "thumb"} for f in after["kept"])
+                  and after["held"] == [["notes.md", True], ["paper.pdf", True], ["pasted.png", True]],
+                  {"shown": [list(f) for f in after["kept"]], "held": after["held"]}),
+        ]
+
+    def attachments_wait_switch_and_trim():
+        # Sent while a PDF is still being read: the question waits for it.
+        waited = m.chrome(r"""
+const [web] = arguments;
+const doc = panelDoc();
+const pdf = await (await fetch(web + '/paper.pdf')).arrayBuffer();
+await attachVia('picker', [panelFile([pdf], 'again.pdf', 'application/pdf')]);
+const atSend = attachmentChips().map(c => c.state);
+const input = doc.getElementById('input');
+input.value = 'quick one';
+input.dispatchEvent(new doc.defaultView.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+await waitFor(() => conv().messages.some(x => x.role === 'user' && x.text === 'quick one'), 'the question', 10000);
+await waitFor(() => !conv().busy, 'the answer', 10000);
+return { atSend, files: conv().messages.find(x => x.text === 'quick one').files.map(f => f.name) };
+""", web)
+        sent = (agent.last_prompt() or {"prompt": []})["prompt"]
+        # Files wait in the composer of their own tab.
+        m.chrome("await attachVia('picker', [panelFile(['MARKER-STAYS'], 'stays.txt', 'text/plain')]); await filesRead(1); return true;")
+        switch_tab(m, tabs.get("article") or open_tab(m, f"{web}/article.html"))
+        elsewhere = m.chrome("await sleep(300); return attachmentChips();")
+        switch_tab(m, tabs["files"])
+        back = m.chrome("await sleep(300); return attachmentChips();")
+        # Switching agents keeps them for the new agent.
+        switched = m.chrome("await choose('harness', 'claude'); return attachmentChips();")
+        to_claude = m.chrome("return await ask('to claude');")
+        claude_blocks = (ctx["claude"].last_prompt() or {"prompt": []})["prompt"]
+        # Files alone: the default question goes with them.
+        alone = m.chrome(r"""
+await attachVia('paste', [panelFile(['MARKER-ALONE'], 'alone.txt', 'text/plain')]);
+await filesRead(1);
+return await ask('');
+""")
+        alone_text = (ctx["claude"].last_prompt() or {"prompt": [{}]})["prompt"][-1].get("text", "")
+        # Long text is cut at the page-text limit.
+        trimmed = m.chrome(r"""
+Services.prefs.setIntPref('uc.agent-sidebar.max-page-chars', 300);
+await attachVia('picker', [panelFile(['MARKER-LONG ' + 'x'.repeat(5000)], 'long.txt', 'text/plain')]);
+const chips = await filesRead(1);
+await ask('trimmed?');
+Services.prefs.clearUserPref('uc.agent-sidebar.max-page-chars');
+return chips;
+""")
+        long_block = next((b["resource"] for b in (ctx["claude"].last_prompt() or {"prompt": []})["prompt"] if b.get("type") == "resource" and "long.txt" in b["resource"]["text"][:40]), {})
+        body = long_block.get("text", "").split("\n\n", 1)[-1]
+        return [
+            check("a question sent while a PDF is read waits for it", waited["atSend"] == ["reading"] and waited["files"] == ["again.pdf"]
+                  and any(b.get("type") == "resource" and "again.pdf" in b["resource"]["text"][:40] for b in sent), waited),
+            check("files stay with their tab", elsewhere == [] and [c["name"] for c in back] == ["stays.txt"], {"elsewhere": elsewhere, "back": back}),
+            check("switching agents keeps the files", [c["name"] for c in switched] == ["stays.txt"], switched),
+            check("and the other agent gets them",
+                  any(b.get("type") == "resource" and "MARKER-STAYS" in b["resource"]["text"] for b in claude_blocks) and "Echo: to claude" in to_claude["messages"][-1]["text"],
+                  claude_blocks),
+            check("files alone go with the default question", alone_text.endswith("解释一下这段内容。") and "Echo: 解释一下这段内容。" in alone["messages"][-1]["text"], alone_text[-80:]),
+            check("long text is cut at the page-text limit", trimmed[0]["info"].endswith("truncated") and "Text (truncated)" in long_block.get("text", "") and len(body) == 300,
+                  {"chip": trimmed, "header": long_block.get("text", "")[:60], "body": len(body)}),
+        ]
+
+    def page_as_seen_and_its_changes():
+        tabs["forum"] = open_tab(m, f"{web}/forum.html")
+        deadline = time.time() + 10  # the reviews load after the page
+        while time.time() < deadline and m.content("return document.querySelectorAll('.reply').length;") < 2:
+            time.sleep(0.2)
+        m.chrome(r"""
+if (!panelOpen()) document.getElementById('cmd_agentSidebarToggle').doCommand();
+await waitFor(() => panelOpen() && glue().panel, 'panel', 5000);
+glue().AgentService.setHarness(conv(), 'codex');
+await sleep(200);
+return true;
+""")
+
+        def page_text_sent():
+            blocks = (agent.last_prompt() or {"prompt": []})["prompt"]
+            return next((b["resource"]["text"] for b in blocks if b.get("type") == "resource"), None)
+
+        m.chrome("return await ask('what do the reviewers say?');")
+        full = page_text_sent() or ""
+        # Another review appears, as when more replies load or a thread is opened.
+        m.content(r"""
+const reply = document.createElement('div');
+reply.className = 'reply';
+reply.innerHTML = '<h3>Official Review by Reviewer Zz99</h3><p>MARKER-REVIEW-THREE The writing is clear.</p>';
+document.getElementById('replies').append(reply);
+return true;
+""")
+        second = m.chrome("return await ask('and the new one?');")
+        update = page_text_sent() or ""
+        m.chrome("return await ask('anything else?');")
+        unchanged = page_text_sent()
+        # Something only goes away: nothing new to send.
+        m.content("document.querySelector('.reply').remove(); return true;")
+        m.chrome("return await ask('after a removal?');")
+        removed = page_text_sent()
+        # Most of the page is new: it goes again in full.
+        m.content(r"""
+document.getElementById('content').innerHTML = '<p>MARKER-NEW-PAGE</p>' +
+  Array.from({ length: 30 }, (_, i) => `<p>new paragraph ${i} about something else entirely</p>`).join('');
+return true;
+""")
+        m.chrome("return await ask('and now?');")
+        whole = page_text_sent() or ""
+        meta = [x["text"] for x in second["messages"] if x["role"] == "user"][-1]
+        return [
+            check("the page goes as rendered, with the reviews that loaded later",
+                  all(k in full for k in ["MARKER-NOTE-TITLE", "MARKER-NOTE-ABSTRACT", "MARKER-REVIEW-ONE", "MARKER-REVIEW-TWO"]), full[:600]),
+            check("the site's menu, header and footer are left out", not any(k in full for k in ["Home · Venues", "SITE-HEADER-BRAND", "SITE-FOOTER"]), full[:600]),
+            check("hidden text is left out", "MARKER-HIDDEN-REPLY" not in full, full[-300:]),
+            check("a change on the page reaches the agent as an update", "Page update" in update and "MARKER-REVIEW-THREE" in update, update),
+            check("an update carries only what is new", "MARKER-REVIEW-ONE" not in update and "MARKER-NOTE-ABSTRACT" not in update, update),
+            check("the message says the page was updated", "Page updated" in meta, meta),
+            check("an unchanged page is not sent again", unchanged is None, unchanged),
+            check("a removal alone sends nothing", removed is None, removed),
+            check("a page that is mostly new goes again in full", "full text again" in whole and "MARKER-NEW-PAGE" in whole, whole[:300]),
+        ]
+
+    def shortcut_does_not_wait_for_busy_frames():
+        tabs["framed"] = open_tab(m, f"{web}/framed.html")
+        time.sleep(2)  # the frame loads and gets busy
+        timing = r"""
+gBrowser.selectedBrowser.focus();
+await sleep(100);
+const started = performance.now();
+await glue().toggle();
+return { ms: Math.round(performance.now() - started), open: panelOpen(), state: panelOpen() ? panelState() : null };
+"""
+        m.chrome("if (panelOpen()) SidebarController.hide(); await sleep(300); return true;")
+        m.content("window.getSelection().removeAllRanges(); return true;")
+        opened = m.chrome(timing)
+        m.content(SELECT_ELEMENT, "#text", "")
+        composed = m.chrome(timing)
+        print(f"  (shortcut with a busy frame: {opened['ms']} ms to open, {composed['ms']} ms to take a selection)")
+        return [
+            check("with nothing selected, the shortcut opens the panel without waiting for a busy frame", opened["open"] and opened["ms"] < 250, opened["ms"]),
+            check("with text selected, it goes into the composer without waiting either",
+                  composed["open"] and "MARKER-FRAMED-PAGE" in composed["state"]["chip"] and composed["ms"] < 250, {"ms": composed["ms"], "chip": composed["state"]["chip"][:60]}),
+        ]
+
+    def typing_starts_a_stopped_agent():
+        r = m.chrome(r"""
+const S = glue().AgentService;
+await waitFor(() => conv().sessionId, 'the session', 10000);
+const conn = S.conns.get(conv().harness);
+const session = conv().sessionId;
+S.sweep(Date.now() + 11 * 60000);
+await waitFor(() => conn.exited, 'the agent to stop', 5000);
+const stopped = !conv().sessionId;
+const doc = panelDoc();
+const input = doc.getElementById('input');
+input.focus();
+input.value = 'w';
+input.dispatchEvent(new doc.defaultView.Event('input'));
+const started = performance.now();
+await waitFor(() => conv().sessionId, 'the session to be ready again', 10000);
+return { stopped, readyMs: Math.round(performance.now() - started), sameSession: conv().sessionId === session, busy: conv().busy };
+""")
+        state = m.chrome("return await ask('typed while it started');")
+        return [
+            check("typing in the composer starts a stopped agent and reopens the session before sending",
+                  r["stopped"] and r["sameSession"] and not r["busy"], r),
+            check("and the question then goes straight to it", "Echo: typed while it started" in state["messages"][-1]["text"], state["messages"][-1]),
+        ]
+
+    def answers_can_be_copied_and_saved():
+        open_tab(m, f"{web}/article.html")
+        r = m.chrome(r"""
+const { Downloads } = ChromeUtils.importESModule('resource://gre/modules/Downloads.sys.mjs');
+const { FileUtils } = ChromeUtils.importESModule('resource://gre/modules/FileUtils.sys.mjs');
+const dir = PathUtils.join(PathUtils.profileDir, 'saved');
+await IOUtils.makeDirectory(dir);
+Services.prefs.setIntPref('browser.download.folderList', 2);
+Services.prefs.setStringPref('browser.download.dir', dir);
+Services.prefs.setBoolPref('browser.download.useDownloadDir', true);
+if (!panelOpen()) { document.getElementById('cmd_agentSidebarToggle').doCommand(); await waitFor(() => panelOpen(), 'panel', 5000); }
+const doc = panelDoc();
+const win = doc.defaultView;
+const out = { dir };
+const after = el => win.getComputedStyle(el, '::after').content;
+
+// The buttons come once an answer is complete, or stopped.
+const input = doc.getElementById('input');
+input.value = 'SLOW please';
+input.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+const slow = await waitFor(() => doc.querySelector('.msg.assistant[data-state="streaming"]'), 'a streaming answer', 8000);
+await sleep(300);
+out.whileStreaming = slow.querySelectorAll('.actions').length;
+out.cursor = after(slow.querySelector('.body'));
+doc.getElementById('stop').click();
+await waitFor(() => !conv().busy, 'the stop', 8000);
+await sleep(150);
+out.whenStopped = slow.querySelectorAll(':scope > .actions button').length;
+out.stoppedMark = after(slow.querySelector('.body'));
+
+await ask('DOCUMENT please');
+const answers = doc.querySelectorAll('.msg.assistant');
+const el = answers[answers.length - 1];
+const answerRow = el.querySelector(':scope > .actions');
+const blockRows = [...el.querySelectorAll('.code > .actions')];
+out.text = el.textContent;
+out.buttons = [answerRow, ...blockRows].map(row => [...row.querySelectorAll('button')].map(b => b.title));
+function clipboard() {
+  const trans = Cc['@mozilla.org/widget/transferable;1'].createInstance(Ci.nsITransferable);
+  trans.init(null);
+  trans.addDataFlavor('text/plain');
+  try {
+    Services.clipboard.getData(trans, Ci.nsIClipboard.kGlobalClipboard);
+  } catch (e) {
+    Services.clipboard.getData(trans, Ci.nsIClipboard.kGlobalClipboard, win.browsingContext.currentWindowContext);
+  }
+  const data = {};
+  trans.getTransferData('text/plain', data);
+  return data.value.QueryInterface(Ci.nsISupportsString).data;
+}
+async function press(row, action) {
+  delete row.dataset.feedback;
+  row.querySelector(`button[data-action="${action}"]`).click();
+  return waitFor(() => row.dataset.feedback, action + ' feedback', 5000);
+}
+out.copied = [];
+for (const row of [answerRow, ...blockRows]) {
+  const feedback = await press(row, 'copy');
+  out.copied.push({ feedback, text: clipboard() });
+}
+out.saved = [];
+for (const row of [answerRow, ...blockRows, blockRows[0]]) {
+  out.saved.push(await press(row, 'save'));
+}
+out.icon = win.getComputedStyle(answerRow.querySelector('.save'), '::before').backgroundImage;
+out.files = {};
+for (const path of await IOUtils.getChildren(dir)) out.files[PathUtils.filename(path)] = await IOUtils.readUTF8(path);
+out.listed = (await (await Downloads.getList(Downloads.PUBLIC)).getAll())
+  .filter(d => d.target.path.startsWith(dir))
+  .map(d => ({ name: PathUtils.filename(d.target.path), succeeded: d.succeeded, from: d.source.url }));
+out.title = gBrowser.selectedTab.label;
+out.url = gBrowser.selectedBrowser.currentURI.spec;
+
+// Firefox set to ask where to save: the Save As dialog (a stand-in here)
+// offers the name, and the file goes where the user picks. Cancel saves
+// nothing.
+const registrar = Components.manager.QueryInterface(Ci.nsIComponentRegistrar);
+const contract = '@mozilla.org/filepicker;1';
+const realCID = registrar.contractIDToCID(contract);
+const standInCID = Services.uuid.generateUUID();
+const picked = PathUtils.join(PathUtils.profileDir, 'picked', 'chosen.md');
+await IOUtils.makeDirectory(PathUtils.parent(picked));
+const shown = [];
+let choice = Ci.nsIFilePicker.returnOK;
+const factory = {
+  QueryInterface: ChromeUtils.generateQI(['nsIFactory']),
+  createInstance(iid) {
+    const picker = {
+      QueryInterface: ChromeUtils.generateQI(['nsIFilePicker']),
+      init(context, title, mode) { this.mode = mode; },
+      appendFilter() {},
+      appendFilters() {},
+      defaultString: '', defaultExtension: '', displayDirectory: null, filterIndex: 0, file: null,
+      open(callback) {
+        shown.push({ name: this.defaultString, mode: this.mode, dir: this.displayDirectory?.path ?? null });
+        this.file = choice === Ci.nsIFilePicker.returnOK ? new FileUtils.File(picked) : null;
+        typeof callback === 'function' ? callback(choice) : callback.done(choice);
+      },
+    };
+    return picker.QueryInterface(iid);
+  },
+};
+registrar.registerFactory(standInCID, 'stand-in file picker', contract, factory);
+Services.prefs.setBoolPref('browser.download.useDownloadDir', false);
+try {
+  out.askSaved = await press(answerRow, 'save');
+  out.picked = (await IOUtils.exists(picked)) ? await IOUtils.readUTF8(picked) : null;
+  choice = Ci.nsIFilePicker.returnCancel;
+  delete answerRow.dataset.feedback;
+  answerRow.querySelector('.save').click();
+  await sleep(500);
+  out.cancelFeedback = answerRow.dataset.feedback ?? null;
+} finally {
+  Services.prefs.setBoolPref('browser.download.useDownloadDir', true);
+  registrar.unregisterFactory(standInCID, factory);
+  registrar.registerFactory(realCID, '', contract, null);
+}
+out.shown = shown;
+out.filesAfterCancel = (await IOUtils.getChildren(dir)).length;
+await sleep(2700);
+out.feedbackLater = answerRow.dataset.feedback ?? null;
+return out;
+""")
+        answer = ("Here is the file:\n\n```markdown\n# Reading notes: **Mamba**\n\n- selective state spaces\n- `linear` time\n```\n\n"
+                  "And a script:\n\n```python\nprint(\"hi\")\n```")
+        block = "# Reading notes: **Mamba**\n\n- selective state spaces\n- `linear` time"
+        title, files = r["title"], r["files"]
+        first_shown = r["shown"][0] if r["shown"] else {}
+        return [
+            check("an answer gets its buttons once complete, or stopped",
+                  r["whileStreaming"] == 0 and r["whenStopped"] == 2 and r["cursor"] == '"▍"' and r["stoppedMark"] == '"(stopped)"',
+                  {k: r[k] for k in ("whileStreaming", "whenStopped", "cursor", "stoppedMark")}),
+            check("so does each code block, saved with its language's extension",
+                  r["buttons"] == [["Copy the Markdown", "Save as .md"], ["Copy the code", "Save as .md"], ["Copy the code", "Save as .py"]], r["buttons"]),
+            check("the buttons stay out of the answer's text", not any(w in r["text"] for w in ("Copy", "Save", "Copied")), r["text"]),
+            check("copy puts the answer's Markdown on the clipboard", r["copied"][0] == {"feedback": "Copied", "text": answer}, r["copied"][0]),
+            check("copy on a code block takes just that block",
+                  [c["text"] for c in r["copied"][1:]] == [block, 'print("hi")'], r["copied"][1:]),
+            check("save puts the answer's Markdown in the downloads folder, named after the page",
+                  files.get(f"{title}.md") == answer + "\n" and "check.svg" in r["icon"], {"files": files, "icon": r["icon"]}),
+            check("a Markdown block is named after its first heading", files.get("Reading notes - Mamba.md") == block + "\n", files),
+            check("other code is named after the page", files.get(f"{title}.py") == 'print("hi")\n', files),
+            check("saving again keeps the first file", files.get("Reading notes - Mamba(1).md") == block + "\n" and len(files) == 4, sorted(files)),
+            check("the panel says what it saved",
+                  r["saved"] == [f"Saved “{title}.md”", "Saved “Reading notes - Mamba.md”", f"Saved “{title}.py”", "Saved “Reading notes - Mamba(1).md”"], r["saved"]),
+            check("saved files are listed in the downloads panel, as from the page",
+                  len(r["listed"]) == 4 and all(d["succeeded"] and d["from"] == r["url"] for d in r["listed"]), r["listed"]),
+            check("with Firefox set to ask, Save As offers the name and saves where the user picks",
+                  first_shown == {"name": f"{title}.md", "mode": 1, "dir": r["dir"]} and r["picked"] == answer + "\n" and r["askSaved"] == "Saved “chosen.md”",
+                  {k: r.get(k) for k in ("shown", "picked", "askSaved")}),
+            check("cancelling Save As saves nothing", len(r["shown"]) == 2 and r["cancelFeedback"] is None and r["filesAfterCancel"] == 4,
+                  {k: r.get(k) for k in ("shown", "cancelFeedback", "filesAfterCancel")}),
+            check("the feedback goes away", r["feedbackLater"] is None, r["feedbackLater"]),
+        ]
+
+    def editing_a_question():
+        tabs["edit"] = open_tab(m, f"{web}/article.html")
+        start = m.chrome(r"""
+if (!panelOpen()) document.getElementById('cmd_agentSidebarToggle').doCommand();
+await waitFor(() => panelOpen() && glue().panel, 'panel', 5000);
+glue().AgentService.setHarness(conv(), 'codex');
+await sleep(200);
+await ask('first question');
+await ask('second question');
+await ask('third question');
+return { session: conv().sessionId, answers: conv().messages.filter(x => x.role === 'assistant').map(x => x.messageId) };
+""")
+        # An answer in the middle: the agent goes back to the answer before it.
+        r = m.chrome("return await editQuestion('second question', 'HISTORY edited second');")
+        forks = agent.messages("session/fork")
+        fork = forks[-1]["params"] if forks else {}
+        prompt = agent.last_prompt() or {}
+        forked = m.chrome("return conv().sessionId;")
+        closed = [x["params"]["sessionId"] for x in agent.messages("session/close")]
+        msgs = r["state"]["messages"]
+        checks = [
+            check("Edit opens the question in place, ready to type", r["shown"] == {"value": "second question", "focused": True, "editing": True}, r["shown"]),
+            check("sending it replaces that question and drops what came after",
+                  [x["role"] for x in msgs] == ["user", "assistant", "user", "assistant"]
+                  and msgs[0]["text"].startswith("first question") and msgs[2]["text"].startswith("HISTORY edited second")
+                  and not any("third question" in x["text"] for x in msgs), msgs),
+            check("the agent forks its session at the answer before the edited question",
+                  fork.get("sessionId") == start["session"] and fork.get("_meta") == {"jetbrains": {"air": {"fork": {"version": 1, "messageId": start["answers"][0]}}}},
+                  {"fork": fork, "answers": start["answers"]}),
+            check("the fork keeps the reading instructions", "reading assistant" in json.dumps(fork.get("systemPrompt")), fork.get("systemPrompt")),
+            check("the edited question goes to the fork, which holds only what came before it, page included",
+                  prompt.get("sessionId") == forked and forked != start["session"] and "History: first question | resources=0" in msgs[-1]["text"],
+                  {"prompt": prompt.get("sessionId"), "forked": forked, "answer": msgs[-1]}),
+            check("the session the question was in is closed", start["session"] in closed, closed[-3:]),
+        ]
+        # The first question: nothing before it to keep.
+        news, fork_count = len(agent.messages("session/new")), len(agent.messages("session/fork"))
+        r = m.chrome("return await editQuestion('first question', 'HISTORY edited first');")
+        msgs = r["state"]["messages"]
+        checks.append(check("editing the first question starts a new session, which gets the page again",
+                            len(agent.messages("session/new")) == news + 1 and len(agent.messages("session/fork")) == fork_count
+                            and len(msgs) == 2 and "History: (none) | resources=1" in msgs[-1]["text"], msgs))
+        # Escape: nothing changes.
+        prompts = len(agent.messages("session/prompt"))
+        r = m.chrome(r"""
+const before = panelState().messages;
+const r = await editQuestion('HISTORY edited first', 'never sent', 'Escape');
+const doc = panelDoc();
+return { before, after: r.state.messages, editor: !!doc.querySelector('.editor'), focus: doc.activeElement?.id ?? null };
+""")
+        checks.append(check("Escape closes the editor and changes nothing",
+                            r["before"] == r["after"] and not r["editor"] and r["focus"] == "input" and len(agent.messages("session/prompt")) == prompts, r))
+        # Files go with the edited question as they were.
+        r = m.chrome(r"""
+await attachVia('picker', [panelFile(['MARKER-EDIT-FILE'], 'kept.txt', 'text/plain')]);
+await filesRead(1);
+await ask('about the file');
+return (await editQuestion('about the file', 'HISTORY about the file, edited')).state.messages;
+""")
+        blocks = (agent.last_prompt() or {"prompt": []})["prompt"]
+        user = next((x for x in reversed(r) if x["role"] == "user"), {})
+        checks.append(check("the files go with the edited question",
+                            any(b.get("type") == "resource" and "MARKER-EDIT-FILE" in b["resource"]["text"] for b in blocks)
+                            and "kept.txt" in user.get("text", "") and "History: HISTORY edited first | resources=1" in r[-1]["text"],
+                            {"blocks": [b.get("type") for b in blocks], "messages": r[-2:]}))
+        # The agent stopped after sitting unused: it starts again and forks
+        # the closed session from its transcript.
+        r = m.chrome(r"""
+const S = glue().AgentService;
+const conn = S.conns.get('codex');
+const session = conv().sessionId;
+S.sweep(Date.now() + 11 * 60000);
+await waitFor(() => conn.exited, 'the agent to stop', 5000);
+const r = await editQuestion('HISTORY about the file, edited', 'HISTORY after the break');
+return { session, state: r.state };
+""")
+        fork = agent.messages("session/fork")[-1]["params"]
+        msgs = r["state"]["messages"]
+        checks.append(check("after the agent stopped, an edit still goes back, in the restarted agent",
+                            fork["sessionId"] == r["session"] and "History: HISTORY edited first | resources=1" in msgs[-1]["text"]
+                            and not any(x["role"] in ("note", "error") for x in msgs), {"fork": fork["sessionId"], "session": r["session"], "messages": msgs}))
+        # An agent that cannot fork: the edited question starts over, and says so.
+        r = m.chrome(r"""
+await choose('harness', 'claude');
+await ask('claude one');
+await ask('claude two');
+return (await editQuestion('claude two', 'HISTORY claude edited')).state.messages;
+""")
+        note = next((x for x in r if x["role"] == "note"), None)
+        checks.append(check("an agent that cannot fork starts over without the earlier messages, and says so",
+                            note and "could not go back" in note["text"] and "History: (none) | resources=1" in r[-1]["text"]
+                            and not ctx["claude"].messages("session/fork"), r))
+        return checks
+
     def uninit_cleans_up():
         r = m.chrome(r"""
 glue().uninit();
@@ -744,6 +1332,13 @@ return {
         ("open_sessions_are_limited", open_sessions_are_limited),
         ("harness_switch", harness_switch),
         ("restore_fallback", restore_fallback),
+        ("attachments_reach_the_agent", attachments_reach_the_agent),
+        ("attachments_wait_switch_and_trim", attachments_wait_switch_and_trim),
+        ("page_as_seen_and_its_changes", page_as_seen_and_its_changes),
+        ("shortcut_does_not_wait_for_busy_frames", shortcut_does_not_wait_for_busy_frames),
+        ("typing_starts_a_stopped_agent", typing_starts_a_stopped_agent),
+        ("answers_can_be_copied_and_saved", answers_can_be_copied_and_saved),
+        ("editing_a_question", editing_a_question),
     ]:
         if ctx["only"] and ctx["only"] not in name:
             continue
@@ -810,6 +1405,37 @@ return { seconds: (Date.now() - started) / 1000, before, after: conv().sessionId
                 print(f"  {harness} after an idle stop answered in {r2['seconds']:.1f}s: {r2['last']['text'][:160]!r}")
                 checks.append(check(f"real {harness} resumes its session after an idle stop",
                                     r2["before"] == r2["after"] and not r2["notes"] and "PONG2" in r2["last"]["text"].upper(), r2))
+                # An attached image: the agent reads the word drawn in it.
+                r3 = m.chrome(r"""
+const doc = panelDoc();
+await attachVia('paste', [await wordImage('PELICAN', 1200, 400)]);
+await filesRead(1);
+const started = Date.now();
+const input = doc.getElementById('input');
+input.value = 'What single word is written in the attached image? Reply with only that word.';
+input.dispatchEvent(new doc.defaultView.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+await waitFor(() => !conv().busy, 'real answer', 180000);
+await sleep(200);
+const state = panelState();
+return { seconds: (Date.now() - started) / 1000, last: state.messages[state.messages.length - 1] };
+""")
+                print(f"  {harness} read an attached image in {r3['seconds']:.1f}s: {r3['last']['text'][:120]!r}")
+                checks.append(check(f"real {harness} reads an attached image", r3["last"]["role"] == "assistant" and "PELICAN" in r3["last"]["text"].upper(), r3))
+                # An edited question: the agent forgets it and what came after.
+                r4 = m.chrome(r"""
+await ask('Reply with exactly the word ALPHA and nothing else.', 180000);
+await ask('Reply with exactly the word BETA and nothing else.', 180000);
+const started = Date.now();
+const r = await editQuestion('Reply with exactly the word BETA and nothing else.',
+  'List every reply you have given so far in this conversation, one per line, nothing else.', 'Enter', 180000);
+const messages = r.state.messages;
+return { seconds: (Date.now() - started) / 1000, last: messages[messages.length - 1],
+         notes: messages.filter(x => x.role === 'note' || x.role === 'error').map(x => x.text) };
+""")
+                print(f"  {harness} answered an edited question in {r4['seconds']:.1f}s: {r4['last']['text'][:200]!r}")
+                text = r4["last"]["text"].upper()
+                checks.append(check(f"real {harness} forgets an edited question and what came after it",
+                                    r4["last"]["role"] == "assistant" and "ALPHA" in text and "BETA" not in text and not r4["notes"], r4))
             # Stopping the agents leaves none of their processes behind.
             m.chrome("glue().AgentService.shutdown(); return true;")
             deadline = time.time() + 10
@@ -898,6 +1524,7 @@ def main():
         ["MARKER-PDF-PAGE-ONE synthetic priors explained.", "A second line on page one."],
         ["MARKER-PDF-PAGE-TWO the method section.", "More words on page two."],
     ])
+    make_pdf(www / "blank.pdf", [[], []])  # like a scan: pages without text
     server, web = serve(www)
 
     agent_log = work / "codex.log"

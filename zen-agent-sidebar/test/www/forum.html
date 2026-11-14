@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Forum test page</title>
+  </head>
+  <body>
+    <!-- Like an OpenReview forum: a paper note, then reviews that load after
+         the page does. Reader mode's Readability keeps the note and drops the
+         reviews. -->
+    <nav>Home · Venues · Profile</nav>
+    <header><div class="site">SITE-HEADER-BRAND</div></header>
+    <main id="content">
+      <article id="note">
+        <header><h1>MARKER-NOTE-TITLE Self-interpretable state space models</h1></header>
+        <p>
+          Abstract: MARKER-NOTE-ABSTRACT We introduce a family of state space models that treat
+          selection as a random variable and regularize it toward a sparsity prior, which yields
+          token-level selection heatmaps for self-interpretation at inference time.
+        </p>
+      </article>
+      <div id="replies"></div>
+      <div id="collapsed" hidden>MARKER-HIDDEN-REPLY a collapsed reply nobody can see</div>
+    </main>
+    <footer>About · Privacy · Terms SITE-FOOTER</footer>
+    <script>
+      setTimeout(() => {
+        const reviews = [
+          ["VVbf", "MARKER-REVIEW-ONE The baselines are weak and the gains are small."],
+          ["Xy12", "MARKER-REVIEW-TWO The theory does not explain why the prior helps."],
+        ];
+        for (const [who, text] of reviews) {
+          const reply = document.createElement("div");
+          reply.className = "reply";
+          reply.innerHTML = `<h3>Official Review by Reviewer ${who}</h3><p>${text}</p>`;
+          document.getElementById("replies").append(reply);
+        }
+      }, 300);
+    </script>
+  </body>
+</html>

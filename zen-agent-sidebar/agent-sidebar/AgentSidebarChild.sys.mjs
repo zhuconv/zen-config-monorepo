@@ -2,19 +2,20 @@
  *
  *   GetSelection  the text the user selected in this frame (or in a focused
  *                 text field).
- *   GetPageText   the page's readable text. In Firefox's PDF viewer this is
- *                 the PDF's text, page by page.
+ *   GetPageText   the page's text as the user sees it. In Firefox's PDF viewer
+ *                 this is the PDF's text, page by page.
  *
  * Nothing here runs until the parent asks.
  */
 
 import { setTimeout } from "resource://gre/modules/Timer.sys.mjs";
 
-const READABILITY = "moz-src:///toolkit/components/reader/readability/Readability.js";
 // PDF pages asked of pdf.js at once: one round trip per batch, not per page.
 const PDF_BATCH = 8;
-
-let readability = null; // Readability's scope, loaded once per content process
+// The parts of a page that belong to the site rather than to the page: its
+// navigation, and the header and footer of the whole page. The header and
+// footer of an article or section stay (#isSitePart).
+const SITE_PARTS = "nav, header, footer, [role=navigation], [role=banner], [role=contentinfo]";
 
 export class AgentSidebarChild extends JSWindowActorChild {
   receiveMessage({ name, data }) {
@@ -120,29 +121,62 @@ export class AgentSidebarChild extends JSWindowActorChild {
     return text.trim();
   }
 
+  /**
+   * The page as it is rendered: the text the user can see (innerText, so
+   * nothing hidden), without the site's navigation, header and footer.
+   * Reader mode's Readability would keep only what it takes for the article,
+   * and drop comments, reviews and replies.
+   */
   #htmlText(maxChars) {
-    let text = "";
-    try {
-      if (!readability) {
-        readability = {};
-        Services.scriptloader.loadSubScript(READABILITY, readability);
-      }
-      const article = new readability.Readability(this.document.cloneNode(true), {
-        charThreshold: 200,
-      }).parse();
-      text = article?.textContent?.replace(/\n{3,}/g, "\n\n").trim() ?? "";
-    } catch (e) {
-      console.warn("[agent-sidebar] Readability failed", e);
+    const body = this.document.body;
+    if (!body) {
+      return null;
     }
-    // Readability keeps only the main article; short results usually mean the
-    // page is not an article, so take everything visible instead.
-    if (text.length < 500) {
-      text = this.document.body?.innerText?.replace(/\n{3,}/g, "\n\n").trim() ?? "";
-    }
+    const parts = [];
+    this.#renderedText(body, parts);
+    const text = parts
+      .join("\n")
+      .replace(/[ \t]+\n/g, "\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
     return {
       kind: "html",
       text: text.slice(0, maxChars),
       truncated: text.length > maxChars,
     };
+  }
+
+  /** Whether an element belongs to the site rather than the page. A header or
+   * footer inside an article or section is that article's own. */
+  #isSitePart(el) {
+    if (!el.matches(SITE_PARTS)) {
+      return false;
+    }
+    if ((el.localName === "header" || el.localName === "footer") && !el.hasAttribute("role")) {
+      return !el.parentElement?.closest("article, aside, main, nav, section");
+    }
+    return true;
+  }
+
+  /** The rendered text of `el` without the site parts in it: read whole when
+   * it has none, and child by child when it does. */
+  #renderedText(el, parts) {
+    if (!el.querySelector(SITE_PARTS)) {
+      const text = el.innerText?.trim();
+      if (text) {
+        parts.push(text);
+      }
+      return;
+    }
+    for (const child of el.childNodes) {
+      if (child.nodeType === 3) {
+        const text = child.textContent.trim();
+        if (text) {
+          parts.push(text);
+        }
+      } else if (child.nodeType === 1 && !this.#isSitePart(child) && child.checkVisibility()) {
+        this.#renderedText(child, parts);
+      }
+    }
   }
 }

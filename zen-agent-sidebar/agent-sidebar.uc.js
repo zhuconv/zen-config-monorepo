@@ -107,22 +107,24 @@
     return Promise.race([promise, new Promise(resolve => setTimeout(() => resolve(null), ms))]);
   }
 
-  /** The selected text in the tab. Every frame is asked at once; the first
-   * one in document order that has a selection wins. */
+  /** The text the user selected in the tab: in the frame they last used (the
+   * focused one), else in the page itself. Other frames are not asked: one
+   * that is busy (an ad, a tracker, a bot check) held the shortcut up for as
+   * long as a second, and a selection is made where the focus is. */
   async function selectionIn(tab) {
-    const contexts = tab.linkedBrowser.browsingContext?.getAllBrowsingContextsInSubtree() ?? [];
-    const answers = contexts.map(context => {
+    const top = tab.linkedBrowser.browsingContext;
+    if (!top) {
+      return "";
+    }
+    const focused = Services.focus.focusedContentBrowsingContext;
+    const contexts = focused && focused !== top && focused.top === top ? [focused, top] : [top];
+    for (const context of contexts) {
       try {
-        return withTimeout(actor(context).sendQuery("GetSelection"), 1000).catch(() => null);
-      } catch {
-        return null;
-      }
-    });
-    for (const answer of answers) {
-      const result = await answer;
-      if (result?.selection) {
-        return result.selection;
-      }
+        const result = await withTimeout(actor(context).sendQuery("GetSelection"), 1000);
+        if (result?.selection) {
+          return result.selection;
+        }
+      } catch {}
     }
     return "";
   }
@@ -136,6 +138,7 @@
     return {
       url,
       title: tab.label,
+      kind: browser.documentContentType === "application/pdf" ? "pdf" : "html",
       getText: () =>
         actor(browser.browsingContext).sendQuery("GetPageText", {
           maxChars: Services.prefs.getIntPref(PREF_MAX_CHARS, 120000),
@@ -184,10 +187,11 @@
     AgentService.prefetchPage(conv, pageOf(tab));
   }
 
-  /** Called by the panel when the user sends a question. */
-  function submit(conv, { question, selection }) {
+  /** Called by the panel when the user sends a question, or an edited one
+   * (`replace`: the question it replaces). */
+  function submit(conv, { question, selection, attachments, replace }) {
     const tab = tabOf(conv) ?? gBrowser.selectedTab;
-    return AgentService.send(conv, { question, selection, page: pageOf(tab) });
+    return AgentService.send(conv, { question, selection, attachments, replace, page: pageOf(tab) });
   }
 
   function normalizeModifiers(modifiers) {

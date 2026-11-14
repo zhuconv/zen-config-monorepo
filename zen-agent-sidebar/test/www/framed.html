@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Page with a busy frame</title>
+  </head>
+  <body>
+    <p id="text">MARKER-FRAMED-PAGE A page that embeds a frame from another site, like an ad or a tracker.</p>
+    <script>
+      // Another site, so another process: localhost is not 127.0.0.1.
+      const frame = document.createElement("iframe");
+      frame.src = `http://localhost:${location.port}/busy-frame.html`;
+      document.body.append(frame);
+    </script>
+  </body>
+</html>

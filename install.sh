@@ -4,6 +4,8 @@
 #      self-check that runs after each Zen update (zen-tab-autofill/install.sh)
 #   2. the agent sidebar (zen-agent-sidebar/install.sh), which needs Node and
 #      the codex or claude CLI
+#   3. Claude Accounts (zen-claude-accounts/install.sh), which reads your
+#      account table at ~/.config/claude-accounts/accounts.json
 # Safe to run again, e.g. after `git pull`. Restart Zen afterwards.
 #
 #   ./install.sh                # the profile Zen opens by default
@@ -38,9 +40,12 @@ fi
 echo "== Tab Autofill"
 "$HERE/zen-tab-autofill/install.sh" "$PROFILE"
 echo
+echo "== Claude Accounts"
+"$HERE/zen-claude-accounts/install.sh" "$PROFILE"
+echo
 echo "== Agent sidebar"
 if ! "$HERE/zen-agent-sidebar/install.sh" "$PROFILE"; then
   echo >&2
-  echo "The agent sidebar was not installed (see above); Tab Autofill was." >&2
+  echo "The agent sidebar was not installed (see above); Tab Autofill and Claude Accounts were." >&2
   exit 1
 fi

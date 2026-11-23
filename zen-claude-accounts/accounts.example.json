@@ -1,0 +1,8 @@
+{
+  "accounts": [
+    { "alias": "ut", "email": "you@school.edu", "org": "00000000-0000-4000-8000-000000000000" },
+    { "alias": "gt", "email": "you@lab.example", "color": "green" },
+    { "alias": "sr", "email": null },
+    { "alias": "me", "email": "you@gmail.example", "chrome": "Profile 2" }
+  ]
+}

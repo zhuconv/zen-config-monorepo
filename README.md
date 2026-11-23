@@ -9,10 +9,14 @@ turns a fresh Zen into this one:
 - **[Agent Sidebar](zen-agent-sidebar/)**: select text, press ⌘⇧A, and ask
   your local Codex or Claude Code about the page or PDF in a sidebar. It runs
   on your ChatGPT or Claude login, with no API key.
+- **[Claude Accounts](zen-claude-accounts/)**: with several Claude accounts,
+  each claude.ai link from the terminal opens in the account it belongs to,
+  each account in a container of its own; a quick picker asks when the link
+  doesn't say which.
 - **A self-check** that runs the tests after each Zen update and shows a
   notification only when something broke.
 
-Both mods are scripts that run with the browser's own privileges, loaded by
+The mods are scripts that run with the browser's own privileges, loaded by
 [fx-autoconfig](https://github.com/MrOtherGuy/fx-autoconfig). They are not
 extensions, and no mod manager is needed.
 
@@ -40,7 +44,11 @@ extensions, and no mod manager is needed.
    ./install.sh
    ```
 
-5. Restart Zen: open `about:support` and click **Clear startup cache…**.
+5. For Claude Accounts, write your account table to
+   `~/.config/claude-accounts/accounts.json`
+   ([format](zen-claude-accounts/README.md#the-account-table)). Without it,
+   Claude links open as usual.
+6. Restart Zen: open `about:support` and click **Clear startup cache…**.
 
 To try it, type `red` in the URL bar and press Tab, or select text on a page
 and press ⌘⇧A.
@@ -60,17 +68,19 @@ from signing in to sync in Zen.
 
 | Path | What it holds |
 |---|---|
-| `install.sh`, `uninstall.sh` | run both mods' installers in order |
+| `install.sh`, `uninstall.sh` | run the mods' installers in order |
 | `zen-tab-autofill/` | the URL bar mod, the pinned fx-autoconfig loader (`vendor/`), the self-check (`tools/`) |
 | `zen-agent-sidebar/` | the sidebar, the pinned agent adapters (`adapter/`) |
+| `zen-claude-accounts/` | the Claude account picker and its containers |
 
-Each folder's README covers its settings and tests. Both test suites start
+Each folder's README covers its settings and tests. The test suites start
 your installed Zen headless with a throwaway profile, so your own profile is
 never touched:
 
 ```sh
 python3 zen-tab-autofill/test/run_test.py
 python3 zen-agent-sidebar/test/run_test.py
+python3 zen-claude-accounts/test/run_test.py
 ```
 
 ## License

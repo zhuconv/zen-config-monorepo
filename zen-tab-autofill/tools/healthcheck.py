@@ -27,6 +27,9 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 CONFIG = HERE / "config.json"  # written by install.sh: {"app": ..., "profile": ...}
+# Other mods' checks, one JSON file each, written by their installers:
+# {"name": ..., "script": <file in chrome/JS>, "test": <run_test.py taking --via-loader>}
+CHECKS = HERE / "checks.d"
 STATE = HERE / "state.json"
 TEST = HERE / "test" / "run_test.py"
 SCRIPT_NAME = "tab-autofill.uc.js"
@@ -59,37 +62,55 @@ def zen_build(app):
     return ini["App"]["Version"], ini["App"]["BuildID"]
 
 
-def find_problems(app, chrome):
-    problems = []
-    resources = app / "Contents" / "Resources"
-    for name in LOADER_FILES:
-        if not (resources / name).exists():
-            problems.append(f"Zen.app 里的加载器文件 {name} 不见了")
-    for path in (chrome / "utils" / "boot.sys.mjs", chrome / "JS" / SCRIPT_NAME):
-        if not path.exists():
-            problems.append(f"profile 里的 {path.relative_to(chrome.parent)} 不见了")
-    if problems:
-        return problems
+def other_checks():
+    checks = []
+    for path in sorted(CHECKS.glob("*.json")):
+        try:
+            spec = json.loads(path.read_text())
+            checks.append((spec["name"], spec["script"], Path(spec["test"])))
+        except (OSError, ValueError, KeyError) as e:
+            log(f"  skipping {path.name}: {e}")
+    return checks
 
+
+def passes(name, test, chrome):
+    """Runs one mod's end-to-end test through the real loader."""
     # A real breakage fails every time; a one-off timing hiccup does not, so a
     # failed run gets one retry before it counts.
     for attempt in (1, 2):
         result = subprocess.run(
-            [sys.executable, str(TEST), "--via-loader", str(chrome)],
+            [sys.executable, str(test), "--via-loader", str(chrome)],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             universal_newlines=True,
             timeout=900,
         )
         if result.returncode == 0:
-            if attempt > 1:
-                log("  passed on the second run")
-            return problems
-        log(f"  test run {attempt} failed:")
+            log(f"  {name}: passed" + (" on the second run" if attempt > 1 else ""))
+            return True
+        log(f"  {name}: test run {attempt} failed:")
         for line in result.stdout.strip().splitlines():
             if not line.startswith("  PASS"):
                 log("    " + line.rstrip())
-    problems.append("自动测试没通过，详情见 ~/Library/Logs/zen-tab-autofill.log")
+    return False
+
+
+def find_problems(app, chrome):
+    problems = []
+    resources = app / "Contents" / "Resources"
+    for name in LOADER_FILES:
+        if not (resources / name).exists():
+            problems.append(f"Zen.app 里的加载器文件 {name} 不见了")
+    checks = [("Tab Autofill", SCRIPT_NAME, TEST)] + other_checks()
+    for path in [chrome / "utils" / "boot.sys.mjs"] + [chrome / "JS" / script for _, script, _ in checks]:
+        if not path.exists():
+            problems.append(f"profile 里的 {path.relative_to(chrome.parent)} 不见了")
+    if problems:
+        return problems
+
+    for name, _, test in checks:
+        if not passes(name, test, chrome):
+            problems.append(f"{name} 的自动测试没通过，详情见 ~/Library/Logs/zen-tab-autofill.log")
     return problems
 
 

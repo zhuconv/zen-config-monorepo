@@ -17,6 +17,12 @@ The mods are scripts that run with the browser's own privileges, loaded by
 [fx-autoconfig](https://github.com/MrOtherGuy/fx-autoconfig). They are not
 extensions, and no mod manager is needed.
 
+**[zen(ius)](https://github.com/zhuconv/zenius)** brings your coding agent
+into this Zen: an agent sidebar, and browser tools the agent drives in a
+Space of its own while you keep working. It sits here as the `zenius/`
+submodule, pinned to the release this setup runs, and installs with its own
+installer (see its README), not with `install.sh`.
+
 ## Set up a new Mac
 
 1. Install Zen from [zen-browser.app](https://zen-browser.app), open it once
@@ -52,6 +58,7 @@ from signing in to sync in Zen.
 ## Day to day
 
 - **Update:** `git pull && ./install.sh`, then restart Zen the same way.
+  `git submodule update --init` brings `zenius/` to the release pinned here.
 - **After a Zen update** the self-check tests the mods against the new build.
   If it reports a problem, run `./install.sh` again first: an update can
   remove the loader from Zen.app.
@@ -64,6 +71,7 @@ from signing in to sync in Zen.
 | `install.sh`, `uninstall.sh` | run the mods' installers in order |
 | `arc-like-cmdT/` | the URL bar mod, the pinned fx-autoconfig loader (`vendor/`), the self-check (`tools/`) |
 | `multi-cc-switcher/` | the Claude account picker and its containers |
+| `zenius/` | [zen(ius)](https://github.com/zhuconv/zenius), a submodule pinned to the release this setup runs |
 
 Each folder's README covers its settings and tests. The test suites start
 your installed Zen headless with a throwaway profile, so your own profile is
@@ -74,8 +82,9 @@ python3 arc-like-cmdT/test/run_test.py
 python3 multi-cc-switcher/test/run_test.py
 ```
 
-The agent sidebar (⌘⇧A) used to live here as `agent-sidebar/`. It moved to a
-separate project in November 2026. Its last version here is commit 782230a:
+The agent sidebar (⌘⇧A) used to live here as `agent-sidebar/`. In November
+2026 it moved into zen(ius), now the `zenius/` submodule. Its last version
+here is commit 782230a:
 `git checkout 782230a -- agent-sidebar` brings it back, uninstall.sh included.
 
 ## License

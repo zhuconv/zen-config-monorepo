@@ -2,9 +2,9 @@
 # Installs Claude Accounts into your own Zen:
 #   1. claude-accounts.uc.js and claude-accounts/ into the profile's chrome/JS
 #   2. its end-to-end test into ~/Library/Application Support/zen-claude-accounts,
-#      registered with the self-check zen-tab-autofill/install.sh sets up, so
+#      registered with the self-check arc-like-cmdT/install.sh sets up, so
 #      each Zen update tests this mod too
-# It needs the fx-autoconfig loader that zen-tab-autofill/install.sh puts in
+# It needs the fx-autoconfig loader that arc-like-cmdT/install.sh puts in
 # place, and your account table at ~/.config/claude-accounts/accounts.json
 # (accounts.example.json shows the format). Safe to run again. Restart Zen
 # afterwards.
@@ -28,7 +28,7 @@ else
 fi
 [ -f "$PROFILE/prefs.js" ] || { echo "Not a Zen profile: $PROFILE" >&2; exit 1; }
 if [ ! -f "$APP/Contents/Resources/config.js" ] || [ ! -f "$PROFILE/chrome/utils/boot.sys.mjs" ]; then
-  echo "The fx-autoconfig loader is missing. Run ../install.sh (or ../zen-tab-autofill/install.sh) first." >&2
+  echo "The fx-autoconfig loader is missing. Run ../install.sh (or ../arc-like-cmdT/install.sh) first." >&2
   exit 1
 fi
 
@@ -60,7 +60,7 @@ if [ -d "$SELFCHECK" ]; then
   launchctl kickstart "gui/$(id -u)/local.zen-tab-autofill.healthcheck" 2>/dev/null || true
   echo "  registered with the self-check; it runs now and after each Zen update"
 else
-  echo "  no self-check to join (zen-tab-autofill/install.sh sets it up)"
+  echo "  no self-check to join (arc-like-cmdT/install.sh sets it up)"
 fi
 
 echo

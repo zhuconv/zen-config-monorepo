@@ -1,7 +1,7 @@
 #!/bin/bash
 # Removes the agent sidebar from your Zen profile and deletes the adapter and
 # config in ~/Library/Application Support/zen-agent-sidebar. The fx-autoconfig
-# loader stays (zen-tab-autofill uses it). Restart Zen afterwards.
+# loader stays (arc-like-cmdT uses it). Restart Zen afterwards.
 #
 #   ./uninstall.sh                # the profile Zen opens by default
 #   ./uninstall.sh PROFILE_DIR

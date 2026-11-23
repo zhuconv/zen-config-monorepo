@@ -7,6 +7,6 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-"$HERE/zen-agent-sidebar/uninstall.sh" "$@"
-"$HERE/zen-claude-accounts/uninstall.sh" "$@"
-"$HERE/zen-tab-autofill/uninstall.sh" "$@"
+"$HERE/agent-sidebar/uninstall.sh" "$@"
+"$HERE/multi-cc-switcher/uninstall.sh" "$@"
+"$HERE/arc-like-cmdT/uninstall.sh" "$@"

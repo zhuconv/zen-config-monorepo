@@ -4,7 +4,7 @@
 #      pins them, into ~/Library/Application Support/zen-agent-sidebar/adapter
 #   2. config.json next to them, naming node, the adapters and your CLIs
 #   3. agent-sidebar.uc.js and agent-sidebar/ into the profile's chrome/JS
-# It needs the fx-autoconfig loader that zen-tab-autofill/install.sh puts in
+# It needs the fx-autoconfig loader that arc-like-cmdT/install.sh puts in
 # place. Safe to run again: paths are refreshed, your config edits are kept.
 # Restart Zen afterwards.
 #
@@ -25,7 +25,7 @@ else
 fi
 [ -f "$PROFILE/prefs.js" ] || { echo "Not a Zen profile: $PROFILE" >&2; exit 1; }
 if [ ! -f "$APP/Contents/Resources/config.js" ] || [ ! -f "$PROFILE/chrome/utils/boot.sys.mjs" ]; then
-  echo "The fx-autoconfig loader is missing. Run ../install.sh (or ../zen-tab-autofill/install.sh) first." >&2
+  echo "The fx-autoconfig loader is missing. Run ../install.sh (or ../arc-like-cmdT/install.sh) first." >&2
   exit 1
 fi
 

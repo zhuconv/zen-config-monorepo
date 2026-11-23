@@ -18,11 +18,11 @@ In the browser:
 - **The toolbar button** does the same for the current claude.ai tab, or opens claude.ai in the account you pick.
 - **The picker marks accounts that aren't signed in yet**. Pick one and sign in on the page that opens; the container keeps the login.
 
-The `#acct=<alias>` tags come from the Claude Code side: the [accounts mod in herdr-config](https://github.com/zhuconv/herdr-config/tree/main/claude-mods/accounts) adds one to each artifact link a Claude session publishes, naming the account that session is signed in as. The same mod's `/auth <alias>` switches a machine's Claude login, and reads the same account table.
+The `#acct=<alias>` tags come from the Claude Code side: the [accounts mod in herdr-config](https://github.com/zhuconv/herdr-config/tree/main/agent-plugin/claude/mods/accounts) adds one to each artifact link a Claude session publishes, naming the account that session is signed in as. The same mod's `/auth <alias>` switches a machine's Claude login, and reads the same account table.
 
 ## Install
 
-From the repository root, `./install.sh` installs this mod with the others. For this mod alone (macOS, after `../zen-tab-autofill/install.sh` has put the fx-autoconfig loader in place):
+From the repository root, `./install.sh` installs this mod with the others. For this mod alone (macOS, after `../arc-like-cmdT/install.sh` has put the fx-autoconfig loader in place):
 
 ```sh
 ./install.sh     # script into your default Zen profile, its test into the self-check

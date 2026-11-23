@@ -16,8 +16,8 @@
   },
   "supportsUnload": true,
   "preferences": "preferences.json",
-  "readme": "https://raw.githubusercontent.com/zhuconv/zen-config-monorepo/main/zen-tab-autofill/README.md",
-  "homepage": "https://github.com/zhuconv/zen-config-monorepo/tree/main/zen-tab-autofill",
+  "readme": "https://raw.githubusercontent.com/zhuconv/zen-config-monorepo/main/arc-like-cmdT/README.md",
+  "homepage": "https://github.com/zhuconv/zen-config-monorepo/tree/main/arc-like-cmdT",
   "tags": [
     "urlbar",
     "keyboard",

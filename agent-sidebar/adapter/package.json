@@ -1,9 +1,0 @@
-{
-  "name": "zen-agent-sidebar-adapters",
-  "private": true,
-  "description": "The ACP adapters the agent sidebar starts. install.sh installs them with npm ci.",
-  "dependencies": {
-    "@agentclientprotocol/claude-agent-acp": "0.107.0",
-    "@agentclientprotocol/codex-acp": "2.6.0"
-  }
-}

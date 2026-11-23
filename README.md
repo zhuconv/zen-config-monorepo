@@ -6,9 +6,6 @@ turns a fresh Zen into this one:
 - **[Tab Autofill](arc-like-cmdT/)**: when the URL bar completes a site
   inline, Tab accepts it, as in Arc. While you type, the URL bar shows the
   favicon of the site Enter would open.
-- **[Agent Sidebar](agent-sidebar/)**: select text, press ⌘⇧A, and ask
-  your local Codex or Claude Code about the page or PDF in a sidebar. It runs
-  on your ChatGPT or Claude login, with no API key.
 - **[Claude Accounts](multi-cc-switcher/)**: with several Claude accounts,
   each claude.ai link from the terminal opens in the account it belongs to,
   each account in a container of its own; a quick picker asks when the link
@@ -24,14 +21,11 @@ extensions, and no mod manager is needed.
 
 1. Install Zen from [zen-browser.app](https://zen-browser.app), open it once
    so it creates your profile, then quit it.
-2. Install the tools. The sidebar needs Node and at least one of the two
-   agent CLIs, logged in; Tab Autofill needs none of them.
+2. Install Apple's Command Line Tools, for git and the python3 the self-check
+   runs on:
 
    ```sh
-   xcode-select --install                 # git and python3
-   brew install node                      # Homebrew: https://brew.sh
-   brew install --cask codex && codex login
-   curl -fsSL https://claude.ai/install.sh | bash    # Claude Code; log in with `claude`, then /login
+   xcode-select --install
    ```
 
 3. Let your terminal change Zen.app: System Settings → Privacy & Security →
@@ -50,8 +44,7 @@ extensions, and no mod manager is needed.
    Claude links open as usual.
 6. Restart Zen: open `about:support` and click **Clear startup cache…**.
 
-To try it, type `red` in the URL bar and press Tab, or select text on a page
-and press ⌘⇧A.
+To try it, type `red` in the URL bar and press Tab.
 
 This repository holds only the mods. Bookmarks, passwords and add-ons come
 from signing in to sync in Zen.
@@ -70,7 +63,6 @@ from signing in to sync in Zen.
 |---|---|
 | `install.sh`, `uninstall.sh` | run the mods' installers in order |
 | `arc-like-cmdT/` | the URL bar mod, the pinned fx-autoconfig loader (`vendor/`), the self-check (`tools/`) |
-| `agent-sidebar/` | the sidebar, the pinned agent adapters (`adapter/`) |
 | `multi-cc-switcher/` | the Claude account picker and its containers |
 
 Each folder's README covers its settings and tests. The test suites start
@@ -79,11 +71,14 @@ never touched:
 
 ```sh
 python3 arc-like-cmdT/test/run_test.py
-python3 agent-sidebar/test/run_test.py
 python3 multi-cc-switcher/test/run_test.py
 ```
 
+The agent sidebar (⌘⇧A) used to live here as `agent-sidebar/`. It moved to a
+separate project in November 2026. Its last version here is commit 782230a:
+`git checkout 782230a -- agent-sidebar` brings it back, uninstall.sh included.
+
 ## License
 
-MIT. Vendored: fx-autoconfig (MPL-2.0), marked (MIT). Written with an AI
+MIT. Vendored: fx-autoconfig (MPL-2.0). Written with an AI
 assistant (Claude).

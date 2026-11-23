@@ -2,9 +2,7 @@
 # Sets up this Zen configuration on a Mac:
 #   1. Tab Autofill, the fx-autoconfig loader both mods need, and the
 #      self-check that runs after each Zen update (arc-like-cmdT/install.sh)
-#   2. the agent sidebar (agent-sidebar/install.sh), which needs Node and
-#      the codex or claude CLI
-#   3. Claude Accounts (multi-cc-switcher/install.sh), which reads your
+#   2. Claude Accounts (multi-cc-switcher/install.sh), which reads your
 #      account table at ~/.config/claude-accounts/accounts.json
 # Safe to run again, e.g. after `git pull`. Restart Zen afterwards.
 #
@@ -42,10 +40,3 @@ echo "== Tab Autofill"
 echo
 echo "== Claude Accounts"
 "$HERE/multi-cc-switcher/install.sh" "$PROFILE"
-echo
-echo "== Agent sidebar"
-if ! "$HERE/agent-sidebar/install.sh" "$PROFILE"; then
-  echo >&2
-  echo "The agent sidebar was not installed (see above); Tab Autofill and Claude Accounts were." >&2
-  exit 1
-fi

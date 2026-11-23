@@ -21,7 +21,7 @@ Which sites get completed is still up to Zen, which uses your history. The favic
 
 ## Install
 
-From the repository root, `./install.sh` installs this mod together with the agent sidebar. For this mod alone (macOS):
+From the repository root, `./install.sh` installs this mod together with Claude Accounts. For this mod alone (macOS):
 
 ```sh
 ./install.sh     # loader into Zen.app, script into your default Zen profile, self-check

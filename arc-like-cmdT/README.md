@@ -30,7 +30,7 @@ From the repository root, `./install.sh` installs this mod together with the age
 
 Then restart Zen: open `about:support` and click **Clear startup cache…**.
 
-`install.sh` copies the [fx-autoconfig](https://github.com/MrOtherGuy/fx-autoconfig) loader (pinned under `vendor/`, MPL-2.0) into `Zen.app`, and copies the loader's profile part and `tab-autofill.uc.js` into your profile. It also installs a LaunchAgent. Whenever the installed Zen build changes, the LaunchAgent runs the end-to-end test through the real loader in a throwaway profile, and shows a notification only if something broke. The log is `~/Library/Logs/zen-tab-autofill.log`. Run `install.sh` again after changing the script.
+`install.sh` copies the [fx-autoconfig](https://github.com/MrOtherGuy/fx-autoconfig) loader (pinned under `vendor/`, MPL-2.0) into `Zen.app`, and copies the loader's profile part and `tab-autofill.uc.js` into your profile. It also installs a LaunchAgent. Whenever the installed Zen build changes, the LaunchAgent runs the end-to-end test through the real loader in a throwaway profile, and shows a notification only if something broke. The log is `~/Library/Logs/arc-like-cmdT.log`. Run `install.sh` again after changing the script.
 
 With your own fx-autoconfig setup, you can instead copy `tab-autofill.uc.js` into your profile's `chrome/JS/` folder and restart Zen.
 

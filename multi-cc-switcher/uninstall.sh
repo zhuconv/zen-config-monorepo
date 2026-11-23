@@ -10,8 +10,8 @@
 set -euo pipefail
 
 ZEN_DATA="$HOME/Library/Application Support/zen"
-SUPPORT="$HOME/Library/Application Support/zen-claude-accounts"
-SELFCHECK="$HOME/Library/Application Support/zen-tab-autofill"
+SUPPORT="$HOME/Library/Application Support/multi-cc-switcher"
+SELFCHECK="$HOME/Library/Application Support/arc-like-cmdT"
 if [ $# -ge 1 ]; then
   PROFILE="$1"
 else

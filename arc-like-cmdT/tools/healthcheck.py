@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Checks after each Zen update that Tab Autofill still works.
 
-install.sh copies this file to ~/Library/Application Support/zen-tab-autofill/
+install.sh copies this file to ~/Library/Application Support/arc-like-cmdT/
 and runs it from a LaunchAgent (at login, hourly, and when Zen.app changes).
 It does nothing until the installed Zen build changes. For a new build it
 checks that the loader files are still in place and runs the end-to-end test
@@ -110,7 +110,7 @@ def find_problems(app, chrome):
 
     for name, _, test in checks:
         if not passes(name, test, chrome):
-            problems.append(f"{name} 的自动测试没通过，详情见 ~/Library/Logs/zen-tab-autofill.log")
+            problems.append(f"{name} 的自动测试没通过，详情见 ~/Library/Logs/arc-like-cmdT.log")
     return problems
 
 

@@ -111,7 +111,7 @@ class Marionette:
 
 # Helpers available to every test script. They run in the browser window.
 COMMON_JS = r"""
-const CA = () => window[Symbol.for("zen-claude-accounts")];
+const CA = () => window[Symbol.for("multi-cc-switcher")];
 const MODULE = "chrome://claudeaccountstest/content/claude-accounts/ClaudeAccounts.sys.mjs";
 const mod = ChromeUtils.importESModule(MODULE);
 const { parseLink, artifactUuid } = mod;
@@ -705,7 +705,7 @@ def account_in_a_chrome_profile_opens_in_chrome(m, shot):
           // comes back as an error.
           let launchError = "";
           try {
-            await saved.launch.call(ClaudeAccounts, ["-a", "No Such App (zen-claude-accounts test)"]);
+            await saved.launch.call(ClaudeAccounts, ["-a", "No Such App (multi-cc-switcher test)"]);
           } catch (e) {
             launchError = e.message;
           }
@@ -774,7 +774,7 @@ def link_that_opens_a_window(m, shot):
         const win = window.openDialog(AppConstants.BROWSER_CHROME_URL, "_blank", "chrome,all,dialog=no", artifact + "#acct=gt", bag);
         await new Promise(r => win.addEventListener("load", r, { once: true }));
         // Under the loader the script starts in the new window by itself.
-        if (!win[Symbol.for("zen-claude-accounts")]) {
+        if (!win[Symbol.for("multi-cc-switcher")]) {
           Services.scriptloader.loadSubScriptWithOptions(url, { target: win, ignoreCache: true });
         }
         const inGt = () => win.gBrowser?.tabs.find(t => t.userContextId === ucid("gt") && t.linkedBrowser?.currentURI?.spec.startsWith(artifact));
@@ -876,7 +876,7 @@ def main():
 
     out = HERE / "output"
     out.mkdir(exist_ok=True)
-    profile = tempfile.mkdtemp(prefix="zen-claude-accounts-test-")
+    profile = tempfile.mkdtemp(prefix="multi-cc-switcher-test-")
     accounts_path = Path(profile) / "accounts.json"
     accounts_path.write_text(json.dumps(ACCOUNTS, indent=2))
     port = free_port()

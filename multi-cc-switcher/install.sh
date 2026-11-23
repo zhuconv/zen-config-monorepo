@@ -1,7 +1,7 @@
 #!/bin/bash
 # Installs Claude Accounts into your own Zen:
 #   1. claude-accounts.uc.js and claude-accounts/ into the profile's chrome/JS
-#   2. its end-to-end test into ~/Library/Application Support/zen-claude-accounts,
+#   2. its end-to-end test into ~/Library/Application Support/multi-cc-switcher,
 #      registered with the self-check arc-like-cmdT/install.sh sets up, so
 #      each Zen update tests this mod too
 # It needs the fx-autoconfig loader that arc-like-cmdT/install.sh puts in
@@ -16,8 +16,8 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 APP="${ZEN_APP:-/Applications/Zen.app}"
 ZEN_DATA="$HOME/Library/Application Support/zen"
-SUPPORT="$HOME/Library/Application Support/zen-claude-accounts"
-SELFCHECK="$HOME/Library/Application Support/zen-tab-autofill"
+SUPPORT="$HOME/Library/Application Support/multi-cc-switcher"
+SELFCHECK="$HOME/Library/Application Support/arc-like-cmdT"
 TABLE="$HOME/.config/claude-accounts/accounts.json"
 
 if [ $# -ge 1 ]; then
@@ -57,7 +57,7 @@ if [ -d "$SELFCHECK" ]; then
     "$SUPPORT/test/run_test.py" "$SELFCHECK/checks.d/claude-accounts.json"
   # Forget the last result so the next check covers this mod.
   rm -f "$SELFCHECK/state.json"
-  launchctl kickstart "gui/$(id -u)/local.zen-tab-autofill.healthcheck" 2>/dev/null || true
+  launchctl kickstart "gui/$(id -u)/local.arc-like-cmdT.healthcheck" 2>/dev/null || true
   echo "  registered with the self-check; it runs now and after each Zen update"
 else
   echo "  no self-check to join (arc-like-cmdT/install.sh sets it up)"

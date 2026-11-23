@@ -15,7 +15,7 @@
     return;
   }
 
-  const INSTANCE = Symbol.for("zen-tab-autofill");
+  const INSTANCE = Symbol.for("arc-like-cmdT");
   const PREF_BRANCH = "uc.tab-autofill.";
   const PREF_DEFAULTS = {
     "tab-accepts": true,

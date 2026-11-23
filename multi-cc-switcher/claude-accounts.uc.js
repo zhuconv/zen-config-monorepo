@@ -28,7 +28,7 @@
     return;
   }
 
-  const INSTANCE = Symbol.for("zen-claude-accounts");
+  const INSTANCE = Symbol.for("multi-cc-switcher");
   // A second load (an update, or a loader running the file twice) replaces the
   // first instance instead of stacking on top of it.
   window[INSTANCE]?.destroy();
@@ -586,7 +586,7 @@
         label: "Claude Accounts",
         tooltiptext: "Open this Claude page in another account, or open Claude in one",
         onCommand(event) {
-          event.target.ownerGlobal[Symbol.for("zen-claude-accounts")]?.switcher();
+          event.target.ownerGlobal[Symbol.for("multi-cc-switcher")]?.switcher();
         },
       });
     } catch (e) {

@@ -459,8 +459,8 @@ export const ClaudeAccounts = {
    * window without one (or after it unloads) gets the link as before.
    */
   hookOpenURI() {
-    const MARK = Symbol.for("zen-claude-accounts-openURI");
-    const INSTANCE = Symbol.for("zen-claude-accounts");
+    const MARK = Symbol.for("multi-cc-switcher-openURI");
+    const INSTANCE = Symbol.for("multi-cc-switcher");
     let proto = null;
     for (const url of ["resource:///modules/BrowserDOMWindow.sys.mjs", "moz-src:///browser/components/BrowserDOMWindow.sys.mjs"]) {
       try {

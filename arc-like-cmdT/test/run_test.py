@@ -279,12 +279,12 @@ LOAD_JS = r"""
 const [url] = arguments;
 Services.scriptloader.loadSubScriptWithOptions(url, { target: window, ignoreCache: true });
 await waitFor(() => Object.hasOwn(u, "setResultForCurrentValue"), "script init");
-return !!window[Symbol.for("zen-tab-autofill")];
+return !!window[Symbol.for("arc-like-cmdT")];
 """
 
 
 LOADED_BY_LOADER_JS = r"""
-await waitFor(() => window[Symbol.for("zen-tab-autofill")] && Object.hasOwn(u, "setResultForCurrentValue"),
+await waitFor(() => window[Symbol.for("arc-like-cmdT")] && Object.hasOwn(u, "setResultForCurrentValue"),
   "the fx-autoconfig loader to start the script", 20000);
 return true;
 """
@@ -444,10 +444,10 @@ def pref_favicon_off(m, shots):
 def unload_restores_everything(m, shots):
     s = m.run(
         'await typeAndWaitValue("red", "reddit.com/"); const before = snap();'
-        'window[Symbol.for("zen-tab-autofill")].destroy(); await settle(); const after = snap();'
+        'window[Symbol.for("arc-like-cmdT")].destroy(); await settle(); const after = snap();'
         'press("Tab"); await settle(); const tab = snap();'
         'return { before, after, tab, ownSetter: Object.hasOwn(u, "setResultForCurrentValue"),'
-        ' instance: !!window[Symbol.for("zen-tab-autofill")] };'
+        ' instance: !!window[Symbol.for("arc-like-cmdT")] };'
     )
     return [
         ("favicon shown before unloading", s["before"]["favicon"], s["before"]),
@@ -548,7 +548,7 @@ def main():
 
     out = HERE / "output"
     out.mkdir(exist_ok=True)
-    profile = tempfile.mkdtemp(prefix="zen-tab-autofill-test-")
+    profile = tempfile.mkdtemp(prefix="arc-like-cmdT-test-")
     port = free_port()
     write_prefs(profile, port)
     if args.via_loader:

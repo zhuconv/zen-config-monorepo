@@ -7,9 +7,9 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 APP="${ZEN_APP:-/Applications/Zen.app}"
 ZEN_DATA="$HOME/Library/Application Support/zen"
 VENDOR="$HERE/vendor/fx-autoconfig"
-SUPPORT="$HOME/Library/Application Support/zen-tab-autofill"
-LOG="$HOME/Library/Logs/zen-tab-autofill.log"
-LABEL="local.zen-tab-autofill.healthcheck"
+SUPPORT="$HOME/Library/Application Support/arc-like-cmdT"
+LOG="$HOME/Library/Logs/arc-like-cmdT.log"
+LABEL="local.arc-like-cmdT.healthcheck"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 
 if [ $# -ge 1 ]; then

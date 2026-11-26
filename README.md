@@ -10,6 +10,11 @@ turns a fresh Zen into this one:
   each claude.ai link from the terminal opens in the account it belongs to,
   each account in a container of its own; a quick picker asks when the link
   doesn't say which.
+- **[PR Live Folder](arc-like-pr-folder/)**: Zen's GitHub pull-request live
+  folder works like Arc's. It lists your PRs and those waiting for your
+  review, only with activity in the last two weeks. It can also list PRs by
+  others in repos you look after. It refreshes when you come back to Zen, and
+  a PR page you open moves into the folder.
 - **A self-check** that runs the tests after each Zen update and shows a
   notification only when something broke.
 
@@ -71,6 +76,7 @@ from signing in to sync in Zen.
 | `install.sh`, `uninstall.sh` | run the mods' installers in order |
 | `arc-like-cmdT/` | the URL bar mod, the pinned fx-autoconfig loader (`vendor/`), the self-check (`tools/`) |
 | `multi-cc-switcher/` | the Claude account picker and its containers |
+| `arc-like-pr-folder/` | the GitHub pull-request live folder, made to work like Arc's |
 | `zenius/` | [zen(ius)](https://github.com/zhuconv/zenius), a submodule pinned to the release this setup runs |
 
 Each folder's README covers its settings and tests. The test suites start
@@ -80,6 +86,7 @@ never touched:
 ```sh
 python3 arc-like-cmdT/test/run_test.py
 python3 multi-cc-switcher/test/run_test.py
+python3 arc-like-pr-folder/test/run_test.py
 ```
 
 The agent sidebar (⌘⇧A) used to live here as `agent-sidebar/`. In November

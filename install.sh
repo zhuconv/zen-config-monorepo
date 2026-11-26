@@ -1,9 +1,10 @@
 #!/bin/bash
 # Sets up this Zen configuration on a Mac:
-#   1. Tab Autofill, the fx-autoconfig loader both mods need, and the
+#   1. Tab Autofill, the fx-autoconfig loader all the mods need, and the
 #      self-check that runs after each Zen update (arc-like-cmdT/install.sh)
 #   2. Claude Accounts (multi-cc-switcher/install.sh), which reads your
 #      account table at ~/.config/claude-accounts/accounts.json
+#   3. PR Live Folder (arc-like-pr-folder/install.sh)
 # Safe to run again, e.g. after `git pull`. Restart Zen afterwards.
 #
 #   ./install.sh                # the profile Zen opens by default
@@ -40,3 +41,6 @@ echo "== Tab Autofill"
 echo
 echo "== Claude Accounts"
 "$HERE/multi-cc-switcher/install.sh" "$PROFILE"
+echo
+echo "== PR Live Folder"
+"$HERE/arc-like-pr-folder/install.sh" "$PROFILE"
